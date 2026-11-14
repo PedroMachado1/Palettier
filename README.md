@@ -24,8 +24,14 @@ Palettier detects your active wallpaper (from GNOME GSettings, slideshow XML des
 
 Documentation is available in **English** and [Português (PT-BR)](README.pt-BR.md).
 
+<img src="docs/assets/images/desktop-quick-settings.png" alt="GNOME desktop and Quick Settings synchronized with the active wallpaper accent color and tinted dock icons">
+
 <details>
-<summary><strong>How Palettier works under the hood</strong></summary>
+<summary><strong>See tinted app icons and architecture</strong></summary>
+
+<p align="center">
+  <img src="docs/assets/images/app-grid-icons.png" alt="GNOME Application Grid with Material Design 3 tinted icons and Palettier Settings">
+</p>
 
 ```mermaid
 flowchart TD
@@ -88,6 +94,10 @@ Open **Palettier Settings** from your GNOME application grid or run:
 palettier --gui      # Native GTK 4 / Libadwaita window (auto-falls back to Web UI)
 palettier --web-ui   # Force the local HTTP Material 3 Web Settings UI
 ```
+
+| Active Palette & Icon Mode | Target Toggles & Service |
+|---|---|
+| <img src="docs/assets/images/settings-gui-palette.png" alt="Palettier Settings showing active Material Design 3 palette swatches, accent options, and icon filter strength"> | <img src="docs/assets/images/settings-gui-integrations.png" alt="Palettier Settings showing desktop integration switches, background daemon toggle, reset, and uninstall"> |
 
 From the interface you can preview active M3 tokens, pick a custom accent override, adjust surface tint and app icon tint strength (`0.0` to `1.0`), switch icon modes (`system`, `places`, `squircle`, `off`), toggle individual targets (**Icons**, **GNOME Accent**, **Ptyxis**, **Starship**, **Firefox**), and start or stop `palettier.service`.
 

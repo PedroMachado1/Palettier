@@ -82,9 +82,9 @@ def launch_gtk_gui() -> int:
             self._summary_group.add(self._wp_row)
             page.add(self._summary_group)
 
-            # 2. Color & Extraction Group
+            # 2. Color and Extraction Group
             color_group = Adw.PreferencesGroup(
-                title="Color & Extraction",
+                title="Color and Extraction",
                 description="Control how Palettier derives your Material Design 3 seed color.",
             )
             self._auto_accent_row = Adw.SwitchRow(
@@ -126,7 +126,7 @@ def launch_gtk_gui() -> int:
             mode_model = Gtk.StringList.new(_ICON_MODE_OPTIONS)
             self._icon_mode_row = Adw.ComboRow(
                 title="Icon Generation Mode",
-                subtitle="system tints all installed apps; places tints folders & mimetypes only",
+                subtitle="system tints all installed apps; places tints folders and mimetypes only",
                 model=mode_model,
             )
             self._icon_mode_row.connect("notify::selected", self._on_setting_changed)
@@ -152,7 +152,7 @@ def launch_gtk_gui() -> int:
             )
             self._target_rows: dict[str, Adw.SwitchRow] = {}
             target_labels = [
-                ("icons", "Material 3 Icon Theme", "GNOME Shell, Nautilus & AppImage bridge"),
+                ("icons", "Material 3 Icon Theme", "GNOME Shell, Nautilus, and AppImage bridge"),
                 ("gnome_accent", "GNOME 47+ Native Accent", "Sync org.gnome.desktop.interface accent-color"),
                 ("ptyxis", "Ptyxis Terminal", "Update palettier.palette and active profiles"),
                 ("starship", "Starship Prompt", "Update ~/.config/starship.toml palette"),
@@ -165,8 +165,8 @@ def launch_gtk_gui() -> int:
                 self._target_rows[key] = row
             page.add(targets_group)
 
-            # 5. Service & Maintenance Group
-            svc_group = Adw.PreferencesGroup(title="Background Service & Maintenance")
+            # 5. Service and Maintenance Group
+            svc_group = Adw.PreferencesGroup(title="Background Service and Maintenance")
             self._service_row = Adw.SwitchRow(
                 title="Auto-Sync Daemon (palettier.service)",
                 subtitle="Watch wallpaper and dark/light mode changes automatically",
@@ -182,7 +182,7 @@ def launch_gtk_gui() -> int:
             svc_group.add(reset_row)
 
             uninstall_row = Adw.ActionRow(
-                title="Uninstall Themes & Restore Apps",
+                title="Uninstall Themes and Restore Apps",
                 subtitle="Stop service, remove generated icons/palettes, and restore defaults",
             )
             uninst_btn = Gtk.Button(label="Uninstall")

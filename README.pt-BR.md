@@ -24,8 +24,14 @@ O Palettier detecta o papel de parede ativo (via GSettings/GNOME, XML de slidesh
 
 Documentação disponível em [English](README.md) e **Português (PT-BR)**.
 
+<img src="docs/assets/images/desktop-quick-settings.png" alt="Desktop GNOME e Configurações Rápidas sincronizados com a cor de destaque e ícones do papel de parede ativo">
+
 <details>
-<summary><strong>Como o Palettier funciona por baixo dos panos</strong></summary>
+<summary><strong>Ver grade de aplicativos com ícones tingidos e arquitetura</strong></summary>
+
+<p align="center">
+  <img src="docs/assets/images/app-grid-icons.png" alt="Grade de aplicativos do GNOME com ícones Material Design 3 sincronizados e Palettier Settings">
+</p>
 
 ```mermaid
 flowchart TD
@@ -88,6 +94,10 @@ Abra **Palettier Settings** pelo menu de aplicativos do GNOME ou execute:
 palettier --gui      # Janela nativa GTK 4 / Libadwaita (fallback automático para Web UI)
 palettier --web-ui   # Abre diretamente a interface Web local Material 3
 ```
+
+| Paleta Ativa e Modo de Ícones | Integrações e Serviço |
+|---|---|
+| <img src="docs/assets/images/settings-gui-palette.png" alt="Palettier Settings exibindo a paleta Material Design 3 ativa, opções de cor e intensidade do filtro dos ícones"> | <img src="docs/assets/images/settings-gui-integrations.png" alt="Palettier Settings exibindo as chaves de integração do desktop, serviço em segundo plano, reset e desinstalação"> |
 
 Pela interface você pode visualizar os tokens M3 ativos, definir uma cor de destaque personalizada, ajustar a intensidade do *surface tint* e do filtro tonal dos ícones (`0.0` a `1.0`), alternar o modo dos ícones (`system`, `places`, `squircle`, `off`), ativar/desativar alvos individuais (**Ícones**, **GNOME Accent**, **Ptyxis**, **Starship**, **Firefox**) e controlar o `palettier.service`.
 
