@@ -56,4 +56,4 @@ palettier-gui = "palettier.gui:main"
 include = ["palettier*"]
 
 [tool.setuptools.package-data]
-palettier = ["assets/*.svg"]
+palettier = ["assets/*.svg", "assets/*.png"]

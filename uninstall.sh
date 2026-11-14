@@ -65,6 +65,7 @@ fi
 
 rm -f "$BIN_DIR/palettier" "$BIN_DIR/palettier-gui"
 rm -f "$XDG_DATA_HOME/applications/palettier.desktop"
+rm -f "$XDG_DATA_HOME/icons/hicolor/512x512/apps/palettier.png"
 rm -f "$XDG_DATA_HOME/icons/hicolor/scalable/apps/palettier.svg"
 
 if [[ -d "$PALETTIER_HOME" ]]; then

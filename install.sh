@@ -234,14 +234,20 @@ if [[ -e "$VENV_DIR/bin/palettier-gui" ]]; then
 fi
 echo "[✓] CLI installed at: $BIN_DIR/palettier"
 
-# 6. Install desktop entry and SVG application icon
+# 6. Install desktop entry and application icon
 if [[ "$NO_GUI" -eq 0 ]]; then
-    ICON_DIR="$XDG_DATA_HOME/icons/hicolor/scalable/apps"
+    ICON_PNG_DIR="$XDG_DATA_HOME/icons/hicolor/512x512/apps"
+    ICON_SVG_DIR="$XDG_DATA_HOME/icons/hicolor/scalable/apps"
     DESKTOP_DIR="$XDG_DATA_HOME/applications"
-    mkdir -p "$ICON_DIR" "$DESKTOP_DIR"
+    mkdir -p "$DESKTOP_DIR"
 
-    if [[ -f "$SOURCE_DIR/palettier/assets/palettier.svg" ]]; then
-        cp -f "$SOURCE_DIR/palettier/assets/palettier.svg" "$ICON_DIR/palettier.svg"
+    if [[ -f "$SOURCE_DIR/palettier/assets/palettier.png" ]]; then
+        mkdir -p "$ICON_PNG_DIR"
+        cp -f "$SOURCE_DIR/palettier/assets/palettier.png" "$ICON_PNG_DIR/palettier.png"
+        rm -f "$ICON_SVG_DIR/palettier.svg"
+    elif [[ -f "$SOURCE_DIR/palettier/assets/palettier.svg" ]]; then
+        mkdir -p "$ICON_SVG_DIR"
+        cp -f "$SOURCE_DIR/palettier/assets/palettier.svg" "$ICON_SVG_DIR/palettier.svg"
     fi
 
     cat > "$DESKTOP_DIR/palettier.desktop" <<EOF
