@@ -4,7 +4,9 @@ palettier.service — Systemd user service management and complete uninstallatio
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -12,9 +14,9 @@ from pathlib import Path
 from palettier.icons import uninstall_m3_icon_pack
 from palettier.state import get_state_file_path
 from palettier.targets import (
-    PTYXIS_PALETTES_DIR,
     STARSHIP_TOML,
     get_firefox_profile_dirs,
+    get_firefox_reference_path,
     get_ptyxis_palette_paths,
 )
 from palettier.wallpaper import gsettings_get, gsettings_set
@@ -24,7 +26,66 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _get_systemd_user_dir() -> Path:
-    return Path.home() / ".config" / "systemd" / "user"
+    xdg_config = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(xdg_config) if xdg_config else (Path.home() / ".config")
+    return base / "systemd" / "user"
+
+
+def get_service_status(service_dir: Path | None = None) -> dict[str, bool]:
+    """Return installation, enabled, and active status for palettier.service."""
+    target_dir = service_dir or _get_systemd_user_dir()
+    installed = (target_dir / SERVICE_NAME).is_file()
+    enabled = False
+    active = False
+
+    if shutil.which("systemctl"):
+        try:
+            res_en = subprocess.run(
+                ["systemctl", "--user", "is-enabled", SERVICE_NAME],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=3,
+            )
+            enabled = res_en.returncode == 0 and res_en.stdout.strip() == "enabled"
+        except Exception:
+            pass
+        try:
+            res_act = subprocess.run(
+                ["systemctl", "--user", "is-active", SERVICE_NAME],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=3,
+            )
+            active = res_act.returncode == 0 and res_act.stdout.strip() == "active"
+        except Exception:
+            pass
+
+    return {"installed": installed, "enabled": enabled, "active": active}
+
+
+def set_service_enabled(enabled: bool, service_dir: Path | None = None) -> bool:
+    """Enable/start or disable/stop palettier.service via systemctl --user."""
+    if enabled:
+        target_dir = service_dir or _get_systemd_user_dir()
+        if not (target_dir / SERVICE_NAME).is_file():
+            install_user_service(service_dir=target_dir)
+        if not shutil.which("systemctl"):
+            return False
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=False, capture_output=True)
+        res = subprocess.run(
+            ["systemctl", "--user", "enable", "--now", SERVICE_NAME],
+            check=False,
+            capture_output=True,
+        )
+        return res.returncode == 0
+
+    if not shutil.which("systemctl"):
+        return False
+    res_stop = subprocess.run(["systemctl", "--user", "stop", SERVICE_NAME], check=False, capture_output=True)
+    res_dis = subprocess.run(["systemctl", "--user", "disable", SERVICE_NAME], check=False, capture_output=True)
+    return res_stop.returncode == 0 or res_dis.returncode == 0
 
 
 def install_user_service(service_dir: Path | None = None) -> Path:
@@ -66,8 +127,9 @@ WantedBy=default.target
 def uninstall_user_service(service_dir: Path | None = None) -> None:
     """Stop, disable, and remove the Palettier systemd --user service."""
     print("[*] Stopping and removing user systemd service...")
-    subprocess.run(["systemctl", "--user", "stop", SERVICE_NAME], check=False, capture_output=True)
-    subprocess.run(["systemctl", "--user", "disable", SERVICE_NAME], check=False, capture_output=True)
+    if shutil.which("systemctl"):
+        subprocess.run(["systemctl", "--user", "stop", SERVICE_NAME], check=False, capture_output=True)
+        subprocess.run(["systemctl", "--user", "disable", SERVICE_NAME], check=False, capture_output=True)
 
     target_dir = service_dir or _get_systemd_user_dir()
     sfile = target_dir / SERVICE_NAME
@@ -78,8 +140,9 @@ def uninstall_user_service(service_dir: Path | None = None) -> None:
         except Exception as e:
             print(f"  [!] Failed to remove {sfile}: {e}")
 
-    subprocess.run(["systemctl", "--user", "daemon-reload"], check=False, capture_output=True)
-    subprocess.run(["systemctl", "--user", "reset-failed"], check=False, capture_output=True)
+    if shutil.which("systemctl"):
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=False, capture_output=True)
+        subprocess.run(["systemctl", "--user", "reset-failed"], check=False, capture_output=True)
     print("[✓] Systemd service removed successfully.")
 
 
@@ -95,7 +158,7 @@ def uninstall_all(
     1. Stop and remove the systemd user service.
     2. Remove generated Ptyxis palettes and restore profiles to 'gnome'.
     3. Remove Palettier palette sections from starship.toml.
-    4. Remove dynamic userChrome.css from Firefox profiles.
+    4. Remove dynamic userChrome.css from Firefox profiles and XDG state reference.
     5. Remove Material Design 3 icon slots and restore the previous icon theme.
     """
     print("==================================================")
@@ -107,6 +170,15 @@ def uninstall_all(
 
     try:
         (state_file or get_state_file_path()).unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    try:
+        ref_css = get_firefox_reference_path()
+        if ref_css.exists():
+            ref_css.unlink(missing_ok=True)
+        if ref_css.parent.is_dir() and not any(ref_css.parent.iterdir()):
+            ref_css.parent.rmdir()
     except Exception:
         pass
 

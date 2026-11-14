@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="palettier-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="palettier-ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="50%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#f472b6"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="30" fill="url(#palettier-bg)" stroke="url(#palettier-ring)" stroke-width="3"/>
+  <path d="M64 26c-21.5 0-38 15.8-38 36 0 13.8 10.6 24.5 22.8 24.5 4.4 0 7.7 2.8 7.7 6.8 0 2.5-.9 4.5-1.5 6.4-.8 2.7 1.1 5.3 4 5.3C84.2 105 102 86.4 102 62c0-20.2-16.5-36-38-36z" fill="#1e293b" stroke="#e2e8f0" stroke-width="3.2" stroke-linejoin="round"/>
+  <circle cx="48" cy="52" r="6.5" fill="#60a5fa"/>
+  <circle cx="66" cy="43" r="6.5" fill="#34d399"/>
+  <circle cx="83" cy="54" r="6.5" fill="#fbbf24"/>
+  <circle cx="81" cy="73" r="6.5" fill="#f472b6"/>
+  <circle cx="67" cy="87" r="5.5" fill="#0f172a" stroke="#94a3b8" stroke-width="2.5"/>
+</svg>

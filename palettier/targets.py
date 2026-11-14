@@ -11,11 +11,15 @@ from pathlib import Path
 from palettier.palette import adjust_lightness, hex_to_rgb, map_hex_to_gnome_accent, mix
 from palettier.wallpaper import gsettings_get, gsettings_set
 
-_PACKAGE_DIR = Path(__file__).resolve().parent
-_REPO_ROOT = _PACKAGE_DIR.parent
-FIREFOX_THEME = _REPO_ROOT / "firefox-userChrome.css"
 STARSHIP_TOML = Path.home() / ".config" / "starship.toml"
 PTYXIS_PALETTES_DIR = Path.home() / ".local" / "share" / "org.gnome.Ptyxis" / "palettes"
+
+
+def get_firefox_reference_path() -> Path:
+    """Return XDG state path for the generated Firefox userChrome.css reference copy."""
+    xdg_state = os.environ.get("XDG_STATE_HOME")
+    base = Path(xdg_state) if xdg_state else (Path.home() / ".local" / "state")
+    return base / "palettier" / "firefox-userChrome.css"
 
 
 def _write_text_if_changed(path: Path, content: str) -> bool:
@@ -359,12 +363,13 @@ def update_firefox_theme(
     css_content = generate_firefox_userchrome_css(accent, tint)
     success = False
 
-    ref = reference_path or FIREFOX_THEME
-    if ref and ref.parent.is_dir() and os.access(ref.parent, os.W_OK):
+    ref = reference_path or get_firefox_reference_path()
+    if ref:
         try:
+            ref.parent.mkdir(parents=True, exist_ok=True)
             _write_text_if_changed(ref, css_content)
         except Exception as e:
-            print(f"[!] Error saving local reference copy {ref}: {e}")
+            print(f"[!] Error saving reference copy {ref}: {e}")
 
     for pdir in dirs:
         try:

@@ -7,16 +7,53 @@ name = "palettier"
 version = "2.0.0"
 description = "Dynamic Material Design 3 theme and icon pack synchronizer for GNOME Linux desktops."
 readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Pedro Machado" }]
 requires-python = ">=3.10"
+keywords = [
+    "gnome",
+    "material-design-3",
+    "wallpaper",
+    "theme",
+    "icons",
+    "linux",
+    "gtk4",
+    "libadwaita",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: X11 Applications :: GTK",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Desktop Environment :: Gnome",
+]
 dependencies = [
     "Pillow>=9.0",
 ]
 
 [project.optional-dependencies]
 watch = ["PyGObject>=3.42"]
+gui = ["PyGObject>=3.42"]
+
+[project.urls]
+Homepage = "https://github.com/PedroMachado1/Palettier"
+Repository = "https://github.com/PedroMachado1/Palettier"
+Issues = "https://github.com/PedroMachado1/Palettier/issues"
 
 [project.scripts]
 palettier = "palettier.cli:main"
 
+[project.gui-scripts]
+palettier-gui = "palettier.gui:main"
+
 [tool.setuptools.packages.find]
 include = ["palettier*"]
+
+[tool.setuptools.package-data]
+palettier = ["assets/*.svg"]

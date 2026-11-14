@@ -2,6 +2,9 @@
 
 > **Language:** **English** | [Português (PT-BR)](README.pt-BR.md)
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](pyproject.toml)
+
 Dynamic **Material Design 3** theme and icon pack synchronizer for Linux desktops (GNOME), extracting a cohesive color palette directly from your active wallpaper.
 
 ---
@@ -17,6 +20,7 @@ Dynamic **Material Design 3** theme and icon pack synchronizer for Linux desktop
 - **GNOME Terminal Emulator (`Ptyxis`)** (`palettier.palette` + GSettings profile update).
 - **`Firefox` Web Browser** (`userChrome.css` and `user.js` across all active profiles, supporting horizontal and vertical tabs).
 - **Native GNOME 47+ Accent Color** (`org.gnome.desktop.interface accent-color`).
+- **Optional Settings UI** (`palettier --gui`): native **GTK 4 + Libadwaita** preferences window (with an automatic zero-dependency **Local Web UI** fallback via `--web-ui`).
 
 > [!NOTE]
 > **Zero external extension dependencies**: all color extraction and Material Design 3 palette math run natively in Python inside the [`palettier`](palettier/) package.
@@ -51,46 +55,91 @@ flowchart TD
 
 ---
 
-## 3. Requirements & Installation
+## 3. Quick Installation
 
-### Dependencies
+### Option A — One-Line Installer (Recommended)
 
-- **Python 3.10+**
-- **Pillow (`PIL`)**: wallpaper color extraction and M3 tonal filtering for raster icons (`.png`, `.webp`, `.jpg`, `.ico`, and base64-embedded PNGs inside SVGs).
-- **PyGObject (`python3-gi`)** *(recommended for `--watch`)*: real-time monitoring via GSettings, `Gio.FileMonitor`, and D-Bus suspend/unlock signals.
-  ```bash
-  sudo apt install python3-gi gir1.2-gio-2.0
-  ```
-- **Target environment tools** *(optional, depending on what you use)*: `gsettings` (GNOME), `starship`, `Ptyxis`, `Firefox`.
+The installer detects your Linux distribution, creates an isolated user virtual environment (`~/.local/share/palettier/venv`), installs `palettier` into `~/.local/bin`, registers the **Palettier Settings** desktop shortcut, and optionally enables the `systemd --user` watcher:
 
-### Quick Installation
+```bash
+curl -fsSL https://raw.githubusercontent.com/PedroMachado1/Palettier/main/install.sh | bash
+```
+
+Or from a local clone:
 
 ```bash
 git clone https://github.com/PedroMachado1/Palettier.git
 cd Palettier
-
-# Install the package and the `palettier` CLI command
-pip install .
-# Or for editable development:
-# pip install -e .
-
-# Run a single sync
-palettier
-
-# Install and enable the systemd --user background watcher
-palettier --install-service
-systemctl --user daemon-reload
-systemctl --user enable --now palettier.service
+./install.sh
 ```
 
-> You can also run directly from source without installing via `python3 -m palettier`.
-> `--install-service` automatically writes `~/.config/systemd/user/palettier.service` pointing to the active Python interpreter and repository/package path.
+> Installer flags: `--yes` (non-interactive), `--no-service` (skip systemd setup), `--no-gui` (skip `.desktop` shortcut), `--uninstall` (remove everything).
+
+### Option B — Manual `pip` Installation
+
+```bash
+git clone https://github.com/PedroMachado1/Palettier.git
+cd Palettier
+pip install .
+```
+
+### Recommended System Packages (for Native GTK 4 UI & `--watch`)
+
+- **Fedora**: `sudo dnf install python3-pillow python3-gobject gtk4 libadwaita`
+- **Ubuntu / Debian**: `sudo apt install python3-venv python3-pil python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gio-2.0`
+- **Arch Linux**: `sudo pacman -S python-pillow python-gobject gtk4 libadwaita`
+- **openSUSE**: `sudo zypper install python3-Pillow python3-gobject gtk4 libadwaita`
+
+> Without `PyGObject` / `libadwaita`, Palettier still runs normally via CLI and automatically uses the built-in local **Web Settings UI** (`palettier --gui` / `palettier --web-ui`).
 
 ---
 
-## 4. Modules & Integrations
+## 4. Optional Settings UI & Persistent Configuration
 
-### 4.1. Core & Wallpaper Extraction (`palettier/wallpaper.py` & `palettier/state.py`)
+### Graphical Settings (`palettier --gui`)
+
+Launch **Palettier Settings** from your GNOME application grid or terminal:
+
+```bash
+palettier --gui      # Native GTK 4 / Libadwaita window (auto-falls back to Web UI)
+palettier --web-ui   # Force the local HTTP Material 3 Web Settings UI
+```
+
+From the interface you can:
+- Preview active **Material Design 3** color tokens extracted from your wallpaper.
+- Choose **Automatic Accent** or pick a **Custom Accent Color**.
+- Adjust **Surface Tint** intensity and **App Icon Tint Strength** (`0.0` to `1.0`).
+- Switch icon pack modes (`system`, `places`, `squircle`, `off`).
+- Toggle individual theme targets on or off (**Icons**, **GNOME Accent**, **Ptyxis**, **Starship**, **Firefox**).
+- Enable or stop the `palettier.service` background watcher and open the HTML icon preview.
+
+### Persistent Configuration (`~/.config/palettier/config.json`)
+
+Preferences saved in `~/.config/palettier/config.json` are shared across CLI runs, `--watch`, the `systemd --user` service, and the Settings UI:
+
+```json
+{
+  "icon_mode": "system",
+  "icon_tint": 0.9,
+  "surface_tint": null,
+  "accent_override": null,
+  "targets": {
+    "icons": true,
+    "gnome_accent": true,
+    "ptyxis": true,
+    "starship": true,
+    "firefox": true
+  }
+}
+```
+
+Precedence order: **CLI flags** > **Environment variables** (`PALETTIER_ICON_MODE`, `PALETTIER_ICON_TINT`) > **`config.json`** > **Defaults**.
+
+---
+
+## 5. Modules & Integrations
+
+### 5.1. Core & Wallpaper Extraction (`palettier/wallpaper.py` & `palettier/state.py`)
 
 1. **Wallpaper Detection (`get_current_wallpaper_path`)**:
    - Reads `org.gnome.desktop.interface color-scheme` and inspects `picture-uri-dark` or `picture-uri` in `org.gnome.desktop.background`.
@@ -101,10 +150,10 @@ systemctl --user enable --now palettier.service
      $$\text{Score} = \text{Population}^{0.55} \times \text{Saturation}^{1.4} \times \text{LightnessFactor}$$
    - Adaptively computes surface tint intensity (`0.08` to `0.14`) from average saturation and supports vector `.svg` wallpapers.
 3. **Runtime State Cache (`$XDG_RUNTIME_DIR/palettier.state`)**:
-   - Prevents redundant re-syncs when wallpaper SHA-256, color-scheme, URIs, and icon mode are unchanged (unless `--force` is passed).
+   - Prevents redundant re-syncs when wallpaper SHA-256, color-scheme, URIs, icon mode, and `config.json` fingerprint are unchanged (unless `--force` is passed).
    - Waits cleanly for active RPM/DNF package transactions before evaluating state.
 
-### 4.2. Material Design 3 Color & Icon Engine (`palettier/palette.py` & `palettier/icons.py`)
+### 5.2. Material Design 3 Color & Icon Engine (`palettier/palette.py` & `palettier/icons.py`)
 
 1. **CAM16 / HCT Engine (`palettier/palette.py`)**:
    - Pure-Python `SchemeTonalSpot` (Material Design 3) deriving **Dark** and **Light** tokens (`primary`, `secondary`, `tertiary`, `error`, `surfaceContainer*`, `outlineVariant`) with verified WCAG contrast ratios.
@@ -126,14 +175,14 @@ systemctl --user enable --now palettier.service
 5. **Atomic GNOME Hot-Reload**:
    - Alternates between `Palettier-M3-A` and `Palettier-M3-B` via `gsettings`, forcing GNOME Shell and Nautilus to reload icons immediately. The original icon theme is saved in `.palettier_prev_icon_theme` for restoration during `--uninstall`.
 
-### 4.3. Starship, Ptyxis, Firefox & GNOME Accent (`palettier/targets.py`)
+### 5.3. Starship, Ptyxis, Firefox & GNOME Accent (`palettier/targets.py`)
 
 - **Starship (`~/.config/starship.toml`)**: updates `[palettes.palettier]` and sets `palette = 'palettier'`.
 - **Ptyxis (`~/.local/share/org.gnome.Ptyxis/palettes/`)**: generates `palettier.palette` (including Flatpak paths when present) and updates all profiles via GSettings (`org.gnome.Ptyxis.Profile`).
 - **Firefox**: discovers profiles in `~/.config/mozilla/firefox/` and `~/.mozilla/firefox/` via `profiles.ini`, enables `toolkit.legacyUserProfileCustomizations.stylesheets = true;` in `user.js`, and writes `chrome/userChrome.css` with horizontal and vertical tab support.
 - **GNOME 47+**: maps the extracted accent color to native `accent-color` in `org.gnome.desktop.interface`.
 
-### 4.4. Real-Time Automation (`palettier/watch.py`)
+### 5.4. Real-Time Automation (`palettier/watch.py`)
 
 - **GSettings + `Gio.FileMonitor`**: reacts immediately to wallpaper changes, `color-scheme` toggles (dark/light), or in-place image file overwrites with 2.0s debouncing.
 - **3-Layer Suspend & Unlock Recovery**:
@@ -143,11 +192,13 @@ systemctl --user enable --now palettier.service
 
 ---
 
-## 5. Project Layout & System Paths
+## 6. Project Layout & System Paths
 
 | Path | Origin / Scope | Purpose |
 |---|---|---|
-| `pyproject.toml` | Repository | Python package metadata and `palettier` CLI entry point |
+| `pyproject.toml` | Repository | Python package metadata, `palettier` and `palettier-gui` entry points |
+| `install.sh` / `uninstall.sh` | Repository | One-step installer and uninstaller scripts |
+| `palettier/config.py` | Package | Persistent XDG JSON configuration (`config.json`) |
 | `palettier/palette.py` | Package | CAM16 / HCT Material Design 3 engine and tint LUTs |
 | `palettier/wallpaper.py` | Package | GSettings helpers, wallpaper discovery, and color extraction |
 | `palettier/state.py` | Package | Runtime `.state` cache and RPM/DNF transaction guard |
@@ -155,11 +206,15 @@ systemctl --user enable --now palettier.service
 | `palettier/icons.py` | Package | M3 SVG generator, app icon tinting, AppImage bridge, and slots |
 | `palettier/sync.py` | Package | Idempotent theme synchronization orchestrator |
 | `palettier/watch.py` | Package | Real-time GSettings, D-Bus, and file watcher |
+| `palettier/gui.py` | Package | Native GTK 4 + Libadwaita Settings UI with Web UI fallback |
+| `palettier/web_ui.py` | Package | Zero-dependency local HTTP Material 3 Web Settings UI |
 | `palettier/service.py` | Package | Systemd user unit installer and complete uninstaller |
 | `palettier/cli.py` | Package | Command-line interface (`palettier`) |
+| `palettier/assets/palettier.svg` | Package | Application vector icon |
 | `palettier.service` | Repository | Reference systemd user unit template |
-| `firefox-userChrome.css` | Generated locally | Reference copy of generated `userChrome.css` |
-| `tests/` | Repository | Automated test suite for HCT, icons, targets, and CLI |
+| `tests/` | Repository | Automated test suite for HCT, icons, config, targets, UI, and CLI |
+| `~/.config/palettier/config.json` | User config | Persistent settings (mode, tint, override, per-target toggles) |
+| `~/.local/state/palettier/firefox-userChrome.css` | Generated | Reference copy of generated Firefox `userChrome.css` |
 | `~/.local/share/icons/Palettier-M3-{A,B}/` | Generated | Alternating Material Design 3 icon theme slots |
 | `~/.local/share/icons/.palettier_prev_icon_theme` | Generated | Backup of the user's previous icon theme name |
 | `~/.local/share/icons/.palettier_desktop_icons.json` | Generated | Restore manifest for bridged `.desktop` files (e.g., AppImages) |
@@ -171,7 +226,7 @@ systemctl --user enable --now palettier.service
 
 ---
 
-## 6. CLI Reference & Environment Variables
+## 7. CLI Reference & Environment Variables
 
 ### Environment Variables
 
@@ -183,6 +238,12 @@ systemctl --user enable --now palettier.service
 ### Common Commands
 
 ```bash
+# Open graphical Settings UI (GTK 4 / Libadwaita or local Web UI fallback)
+palettier --gui
+
+# Open local Web Settings UI directly (add --no-browser for headless use)
+palettier --web-ui
+
 # Single sync from active wallpaper
 palettier
 
@@ -198,7 +259,7 @@ palettier --no-icons
 # Generate an HTML preview of the M3 palette and icons
 palettier --preview-icons
 
-# Print diagnostics for detected wallpaper, accent color, and M3 tokens
+# Print diagnostics for detected wallpaper, config, accent color, and M3 tokens
 palettier --info
 
 # Sync from a specific image file
@@ -222,16 +283,22 @@ systemctl --user restart palettier.service
 # Remove only the systemd service
 palettier --uninstall-service
 
-# Complete uninstall (removes service, M3 slots, palettes, Firefox CSS, and restores .desktop/icons)
+# Restore desktop defaults (service, M3 slots, palettes, Firefox CSS, .desktop/icons)
 palettier --uninstall
+
+# Complete removal of binaries, desktop shortcut, virtual environment, and themes
+./uninstall.sh
 ```
 
 ---
 
-## 7. Automated Tests
+## 8. Automated Tests & Contributing
 
-To validate HCT color math, WCAG contrast, PNG/SVG alpha and geometry preservation, AppImage bridging, dual-slot rotation, target configs, and CLI behavior:
+To validate HCT color math, WCAG contrast, PNG/SVG alpha and geometry preservation, AppImage bridging, dual-slot rotation, persistent config, Web UI API, target configs, and CLI behavior:
 
 ```bash
 python3 -m unittest discover -s tests -v
+bash -n install.sh uninstall.sh
 ```
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) and [LICENSE](LICENSE) (MIT).

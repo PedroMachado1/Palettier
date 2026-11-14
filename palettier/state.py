@@ -134,10 +134,12 @@ def is_state_unchanged(
     current_state: dict,
     saved_state: dict | None,
     icon_mode: str | None = None,
+    config_fingerprint: str | None = None,
 ) -> bool:
     """
     Compare current desktop state with the persisted `.state` payload.
-    Returns True only if wallpaper SHA-256, color-scheme, URIs, and icon mode all match.
+    Returns True only if wallpaper SHA-256, color-scheme, URIs, icon mode,
+    and active configuration fingerprint all match.
     """
     if not saved_state:
         return False
@@ -154,6 +156,8 @@ def is_state_unchanged(
     if "picture_uri_dark" in saved_state and saved_state.get("picture_uri_dark") != current_state.get("picture_uri_dark"):
         return False
     if icon_mode is not None and saved_state.get("icon_mode") != icon_mode:
+        return False
+    if config_fingerprint is not None and saved_state.get("config_fingerprint") != config_fingerprint:
         return False
     return True
 
