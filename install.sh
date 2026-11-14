@@ -216,14 +216,14 @@ python3 -m venv --system-site-packages "$VENV_DIR"
 
 if ! "$VENV_DIR/bin/python" -c "import PIL" >/dev/null 2>&1; then
     echo "[*] Installing Pillow in virtual environment..."
-    "$VENV_DIR/bin/pip" install --quiet "Pillow>=9.0"
+    "$VENV_DIR/bin/pip" install --quiet --disable-pip-version-check "Pillow>=9.0"
 fi
 
 echo "[*] Installing Palettier package..."
 if "$VENV_DIR/bin/python" -c "import setuptools" >/dev/null 2>&1; then
-    "$VENV_DIR/bin/pip" install --quiet --no-deps --no-build-isolation "$SOURCE_DIR"
+    "$VENV_DIR/bin/pip" install --quiet --disable-pip-version-check --no-deps --no-build-isolation "$SOURCE_DIR"
 else
-    "$VENV_DIR/bin/pip" install --quiet --no-deps "$SOURCE_DIR"
+    "$VENV_DIR/bin/pip" install --quiet --disable-pip-version-check --no-deps "$SOURCE_DIR"
 fi
 
 # 5. Install CLI symlinks in ~/.local/bin
@@ -276,13 +276,13 @@ fi
 # 7. Configure systemd --user background service
 if [[ "$NO_SERVICE" -eq 0 ]]; then
     echo "[*] Installing systemd --user service..."
-    "$BIN_DIR/palettier" --install-service
-
     if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+        PALETTIER_QUIET_SERVICE_HINT=1 "$BIN_DIR/palettier" --install-service
+
         ENABLE_SVC=0
-        if [[ "$YES" -eq 1 ]]; then
+        if [[ "$YES" -eq 1 || ! -t 0 ]]; then
             ENABLE_SVC=1
-        elif [[ -t 0 ]]; then
+        else
             read -r -p "[?] Enable and start background theme sync service now? [Y/n] " svc_ans
             if [[ -z "$svc_ans" || "${svc_ans,,}" == "y" || "${svc_ans,,}" == "yes" || "${svc_ans,,}" == "s" ]]; then
                 ENABLE_SVC=1
@@ -293,8 +293,12 @@ if [[ "$NO_SERVICE" -eq 0 ]]; then
             systemctl --user daemon-reload
             systemctl --user enable --now palettier.service
             echo "[✓] Background service enabled and running!"
+        else
+            echo "[*] Service unit created. Enable anytime with:"
+            echo "    systemctl --user enable --now palettier.service"
         fi
     else
+        "$BIN_DIR/palettier" --install-service
         echo "[*] Systemd user D-Bus session not active here; skipping automatic enable."
         echo "    Enable later with: systemctl --user enable --now palettier.service"
     fi

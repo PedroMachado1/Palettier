@@ -118,9 +118,10 @@ WantedBy=default.target
     service_file.write_text(service_content, encoding="utf-8")
 
     print(f"[✓] Service unit created at: {service_file}")
-    print("\nTo enable and start the service now, run:")
-    print("  systemctl --user daemon-reload")
-    print(f"  systemctl --user enable --now {SERVICE_NAME}")
+    if os.environ.get("PALETTIER_QUIET_SERVICE_HINT") != "1":
+        print("\nTo enable and start the service now, run:")
+        print("  systemctl --user daemon-reload")
+        print(f"  systemctl --user enable --now {SERVICE_NAME}")
     return service_file
 
 
