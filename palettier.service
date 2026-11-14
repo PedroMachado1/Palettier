@@ -1,5 +1,5 @@
 [Unit]
-Description=WallpaperSync Theme Synchronizer (Terminal, Firefox, GNOME, Icons)
+Description=Palettier Theme Synchronizer (Terminal, Firefox, GNOME, Icons)
 After=graphical-session.target
 StartLimitIntervalSec=60
 StartLimitBurst=3
@@ -7,7 +7,7 @@ StartLimitBurst=3
 [Service]
 Type=simple
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 -u %h/Imagens/Wallpapers/WallpaperSync/sync_theme.py --watch
+ExecStart=/usr/bin/env palettier --watch
 Restart=on-failure
 RestartSec=3
 

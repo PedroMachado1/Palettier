@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""Testes automatizados para o motor de cores e gerador de ícones Material Design 3."""
+"""Automated tests for Palettier's Material Design 3 color engine and icon generator."""
 
 from __future__ import annotations
 
@@ -15,7 +14,7 @@ from unittest import mock
 
 from PIL import Image
 
-from m3_icons import (
+from palettier.icons import (
     ICON_SLOT_A,
     ICON_SLOT_B,
     discover_installed_app_icons,
@@ -27,15 +26,15 @@ from m3_icons import (
     sync_m3_icon_pack,
     uninstall_m3_icon_pack,
 )
-from m3_palette import (
+from palettier.palette import (
     build_icon_tint_luts,
     build_m3_scheme,
     contrast_ratio,
-    hex_to_hct,
     hct_to_hex,
+    hex_to_hct,
     recolor_rgb_m3,
 )
-import sync_theme
+from palettier.state import is_state_unchanged
 
 
 class TestM3Palette(unittest.TestCase):
@@ -57,17 +56,14 @@ class TestM3Palette(unittest.TestCase):
         self.assertAlmostEqual(tone, 60.0, delta=1.5)
 
     def test_icon_tint_luts_preserve_extremes_and_shift_hue(self):
-        lut_p, lut_n = build_icon_tint_luts("#e01b24")  # Vermelho vibrante
+        lut_p, lut_n = build_icon_tint_luts("#e01b24")
         self.assertEqual(len(lut_p), 256)
         self.assertEqual(len(lut_n), 256)
-        # Preto e branco puros permanecem neutros/legíveis
         self.assertEqual(lut_p[0], (0, 0, 0))
         self.assertEqual(lut_p[255], (255, 255, 255))
-        # Um azul saturado deve virar predominantemente vermelho após o filtro
         nr, ng, nb = recolor_rgb_m3(28, 113, 216, lut_p, lut_n, strength=0.92)
         self.assertGreater(nr, nb)
         self.assertGreater(nr, ng)
-        # Branco puro não deve escurecer nem ganhar forte saturação
         wr, wg, wb = recolor_rgb_m3(255, 255, 255, lut_p, lut_n, strength=0.90)
         self.assertEqual((wr, wg, wb), (255, 255, 255))
 
@@ -85,6 +81,7 @@ class TestM3Icons(unittest.TestCase):
                 index_txt = (target / "index.theme").read_text(encoding="utf-8")
                 self.assertIn("Inherits=", index_txt)
                 self.assertIn("Adwaita", index_txt)
+                self.assertIn("Palettier", index_txt)
                 if mode == "places":
                     self.assertNotIn("scalable/apps", index_txt)
                     self.assertNotIn("256x256/apps", index_txt)
@@ -130,13 +127,12 @@ class TestM3Icons(unittest.TestCase):
         self.assertIn("fill:none", out_svg)
         self.assertIn("stroke: none", out_svg)
         self.assertIn('d="M20,20 L100,100"', out_svg)
-        # Cores azuis devem ter sido substituídas por cores da paleta vermelha
         self.assertNotIn("#3584e4", out_svg)
         self.assertNotIn("#1a5fb4", out_svg)
         self.assertNotIn("fill: blue", out_svg)
 
     def test_recolor_svg_embedded_base64_png(self):
-        lut_p, lut_n = build_icon_tint_luts("#2ec27e")  # Verde
+        lut_p, lut_n = build_icon_tint_luts("#2ec27e")
         img = Image.new("RGBA", (8, 8), (30, 100, 230, 200))
         buf = io.BytesIO()
         img.save(buf, format="PNG")
@@ -151,7 +147,7 @@ class TestM3Icons(unittest.TestCase):
             self.assertGreater(pg, pb)
 
     def test_recolor_png_preserves_alpha_mask_and_recolors_pixels(self):
-        lut_p, lut_n = build_icon_tint_luts("#e01b24")  # Vermelho
+        lut_p, lut_n = build_icon_tint_luts("#e01b24")
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "orig.png"
             dst = Path(tmp) / "tinted.png"
@@ -159,21 +155,17 @@ class TestM3Icons(unittest.TestCase):
             for x in range(4, 12):
                 for y in range(4, 12):
                     img.putpixel((x, y), (30, 110, 220, 255))
-            # Centro branco (texto/glifo)
             img.putpixel((8, 8), (255, 255, 255, 255))
             img.save(src)
 
             ok = recolor_png_image(src, dst, lut_p, lut_n, strength=0.92)
             self.assertTrue(ok)
             with Image.open(dst) as out:
-                # Fundo transparente permanece exatamente transparente
                 self.assertEqual(out.getpixel((0, 0))[3], 0)
-                # Região azul ganha tom vermelho mantendo alpha=255
                 r, g, b, a = out.getpixel((5, 5))
                 self.assertEqual(a, 255)
                 self.assertGreater(r, b)
                 self.assertGreater(r, g)
-                # Glifo branco permanece branco
                 self.assertEqual(out.getpixel((8, 8)), (255, 255, 255, 255))
 
     def test_discover_and_tint_installed_svg_svgz_png_apps(self):
@@ -247,7 +239,6 @@ class TestM3Icons(unittest.TestCase):
             user_apps.mkdir(parents=True)
             user_icons.mkdir(parents=True)
 
-            # Ícone de AppImage em caminho absoluto (ex: Gear Lever)
             appimage_icon = root / "AppImages" / ".icons" / "amethyst.png"
             appimage_icon.parent.mkdir(parents=True)
             Image.new("RGBA", (64, 64), (160, 40, 230, 255)).save(appimage_icon)
@@ -261,7 +252,6 @@ class TestM3Icons(unittest.TestCase):
             )
             amethyst_desktop.write_text(orig_desktop_txt, encoding="utf-8")
 
-            # Ícone solto em ~/.local/share/icons/amethyst_loose.png
             Image.new("RGBA", (32, 32), (20, 120, 240, 255)).save(user_icons / "amethyst_loose.png")
             (user_apps / "loose.desktop").write_text(
                 "[Desktop Entry]\nType=Application\nName=Loose\nIcon=amethyst_loose\n",
@@ -293,26 +283,22 @@ class TestM3Icons(unittest.TestCase):
                 self.assertTrue(ok)
                 self.assertEqual(slot, ICON_SLOT_A)
 
-                # .desktop do usuário foi atualizado para o nome temático reversível
                 bridged_txt = amethyst_desktop.read_text(encoding="utf-8")
-                self.assertIn("Icon=wallpapersync-app-amethyst", bridged_txt)
+                self.assertIn("Icon=palettier-app-amethyst", bridged_txt)
 
-                # Backup original intacto existe em hicolor e ícone tingido existe no slot M3
-                self.assertTrue((user_icons / "hicolor" / "256x256" / "apps" / "wallpapersync-app-amethyst.png").is_file())
-                tinted_amethyst = user_icons / ICON_SLOT_A / "256x256" / "apps" / "wallpapersync-app-amethyst.png"
+                self.assertTrue((user_icons / "hicolor" / "256x256" / "apps" / "palettier-app-amethyst.png").is_file())
+                tinted_amethyst = user_icons / ICON_SLOT_A / "256x256" / "apps" / "palettier-app-amethyst.png"
                 self.assertTrue(tinted_amethyst.is_file())
                 with Image.open(tinted_amethyst) as img:
                     r, g, b, a = img.getpixel((32, 32))
                     self.assertEqual(a, 255)
-                    self.assertGreater(r, b)  # Roxo virou vermelho M3
+                    self.assertGreater(r, b)
 
-                # Ícone solto em ~/.local/share/icons/ também foi capturado
                 self.assertTrue((user_icons / ICON_SLOT_A / "256x256" / "apps" / "amethyst_loose.png").is_file())
 
-                # Desinstalação restaura o Icon=/abs/path original intacto no .desktop
                 uninstall_m3_icon_pack(gsettings_get_fn=fake_get, gsettings_set_fn=fake_set)
                 self.assertEqual(amethyst_desktop.read_text(encoding="utf-8"), orig_desktop_txt)
-                self.assertFalse((user_icons / "hicolor" / "256x256" / "apps" / "wallpapersync-app-amethyst.png").exists())
+                self.assertFalse((user_icons / "hicolor" / "256x256" / "apps" / "palettier-app-amethyst.png").exists())
 
     def test_dual_slot_hot_reload_and_uninstall(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -331,19 +317,16 @@ class TestM3Icons(unittest.TestCase):
                 return False
 
             with mock.patch.dict(os.environ, {"XDG_DATA_HOME": str(xdg_data)}):
-                # Primeira execução: MoreWaita -> WallpaperSync-M3-A
                 ok1, _, slot1 = sync_m3_icon_pack("#3584e4", is_dark=True, mode="system", gsettings_get_fn=fake_get, gsettings_set_fn=fake_set)
                 self.assertTrue(ok1)
                 self.assertEqual(slot1, ICON_SLOT_A)
                 self.assertEqual(fake_gsettings["icon-theme"], ICON_SLOT_A)
 
-                # Segunda execução: WallpaperSync-M3-A -> WallpaperSync-M3-B
                 ok2, _, slot2 = sync_m3_icon_pack("#e01b24", is_dark=False, mode="full", gsettings_get_fn=fake_get, gsettings_set_fn=fake_set)
                 self.assertTrue(ok2)
                 self.assertEqual(slot2, ICON_SLOT_B)
                 self.assertEqual(fake_gsettings["icon-theme"], ICON_SLOT_B)
 
-                # Desinstalação: remove A e B e restaura MoreWaita
                 removed = uninstall_m3_icon_pack(gsettings_get_fn=fake_get, gsettings_set_fn=fake_set)
                 self.assertEqual(fake_gsettings["icon-theme"], "MoreWaita")
                 self.assertFalse((xdg_data / "icons" / ICON_SLOT_A).exists())
@@ -353,7 +336,7 @@ class TestM3Icons(unittest.TestCase):
     def test_html_preview_and_state_cache(self):
         scheme = build_m3_scheme("#2ec27e", is_dark=True)
         html_squircle = render_html_preview(scheme, mode="squircle")
-        self.assertIn("WallpaperSync Material Design 3 Icons", html_squircle)
+        self.assertIn("Palettier Material Design 3 Icons", html_squircle)
         self.assertIn(scheme["primary"], html_squircle)
         self.assertIn("<svg", html_squircle)
 
@@ -371,8 +354,8 @@ class TestM3Icons(unittest.TestCase):
             "accent_color": "#2ec27e",
             "icon_mode": "system",
         }
-        self.assertTrue(sync_theme.is_state_unchanged(cur, saved, icon_mode="system"))
-        self.assertFalse(sync_theme.is_state_unchanged(cur, saved, icon_mode="squircle"))
+        self.assertTrue(is_state_unchanged(cur, saved, icon_mode="system"))
+        self.assertFalse(is_state_unchanged(cur, saved, icon_mode="squircle"))
 
 
 if __name__ == "__main__":

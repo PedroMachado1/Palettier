@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "palettier"
+version = "2.0.0"
+description = "Dynamic Material Design 3 theme and icon pack synchronizer for GNOME Linux desktops."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "Pillow>=9.0",
+]
+
+[project.optional-dependencies]
+watch = ["PyGObject>=3.42"]
+
+[project.scripts]
+palettier = "palettier.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["palettier*"]

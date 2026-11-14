@@ -1,42 +1,86 @@
-#!/usr/bin/env python3
 """
-m3_palette.py — Motor de Cores Material Design 3 (CAM16 / HCT & Tonal Palettes)
-Implementação em Python puro (sem dependências externas) baseada nas especificações
-oficiais do Material Design 3 (https://m3.material.io/styles/color/).
+palettier.palette — Material Design 3 Color Engine (CAM16 / HCT & Tonal Palettes).
 
-Deriva paletas tonais perceptualmente uniformes (Hue, Chroma, Tone) e gera todos
-os tokens semânticos de cor do M3 para temas Escuro (Dark) e Claro (Light).
+Pure-Python implementation (no external dependencies) based on the official
+Material Design 3 color specifications (https://m3.material.io/styles/color/).
+
+Derives perceptually uniform tonal palettes (Hue, Chroma, Tone) and generates
+semantic Material Design 3 color tokens for Dark and Light themes, plus icon
+tinting lookup tables (LUTs).
 """
 
 from __future__ import annotations
 
+import colorsys
 import math
 from dataclasses import dataclass
 
-
 # ==============================================================================
-# 1. CONVERSÕES DE ESPAÇO DE CORES (sRGB <-> Linear RGB <-> XYZ <-> L*a*b*)
+# 1. COLOR SPACE CONVERSIONS (sRGB <-> Linear RGB <-> XYZ <-> L*a*b*)
 # ==============================================================================
 
 _D65_WHITE = (95.047, 100.0, 108.883)
 
 
 def hex_to_rgb(hex_str: str) -> tuple[int, int, int]:
-    """Converte código hexadecimal (#RRGGBB ou #RGB) em tupla RGB (0-255)."""
+    """Convert a hex color string (#RRGGBB or #RGB) to an RGB tuple (0-255)."""
     s = hex_str.strip().lstrip("#")
     if len(s) == 3:
         s = "".join(c * 2 for c in s)
     if len(s) != 6:
-        raise ValueError(f"Cor hexadecimal inválida: {hex_str!r}")
+        raise ValueError(f"Invalid hexadecimal color: {hex_str!r}")
     return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
 
 
-def rgb_to_hex(r: int, g: int, b: int) -> str:
-    """Converte componentes RGB (0-255) em string #rrggbb."""
-    r = max(0, min(255, int(round(r))))
-    g = max(0, min(255, int(round(g))))
-    b = max(0, min(255, int(round(b))))
-    return f"#{r:02x}{g:02x}{b:02x}"
+def rgb_to_hex(r: float, g: float, b: float) -> str:
+    """Convert RGB components (0-255) into a #rrggbb hex string."""
+    ri = max(0, min(255, int(round(r))))
+    gi = max(0, min(255, int(round(g))))
+    bi = max(0, min(255, int(round(b))))
+    return f"#{ri:02x}{gi:02x}{bi:02x}"
+
+
+def mix(hex1: str, hex2: str, weight: float) -> str:
+    """Blend two hex colors based on weight (0.0 = hex1, 1.0 = hex2)."""
+    r1, g1, b1 = hex_to_rgb(hex1)
+    r2, g2, b2 = hex_to_rgb(hex2)
+    r = r1 * (1.0 - weight) + r2 * weight
+    g = g1 * (1.0 - weight) + g2 * weight
+    b = b1 * (1.0 - weight) + b2 * weight
+    return rgb_to_hex(r, g, b)
+
+
+def adjust_lightness(hex_str: str, delta: float) -> str:
+    """Adjust relative lightness in HSL space (-1.0 to +1.0)."""
+    r, g, b = (c / 255.0 for c in hex_to_rgb(hex_str))
+    h, l, s = colorsys.rgb_to_hls(r, g, b)
+    l = max(0.0, min(1.0, l + delta))
+    nr, ng, nb = colorsys.hls_to_rgb(h, l, s)
+    return rgb_to_hex(nr * 255, ng * 255, nb * 255)
+
+
+def map_hex_to_gnome_accent(hex_str: str) -> str:
+    """Map a hex color to the closest native GNOME 47+ accent-color keyword."""
+    r, g, b = (c / 255.0 for c in hex_to_rgb(hex_str))
+    h, _l, s = colorsys.rgb_to_hls(r, g, b)
+    if s < 0.18:
+        return "slate"
+    deg = (h * 360.0) % 360
+    if deg < 18 or deg >= 345:
+        return "red"
+    if deg < 45:
+        return "orange"
+    if deg < 70:
+        return "yellow"
+    if deg < 165:
+        return "green"
+    if deg < 195:
+        return "teal"
+    if deg < 260:
+        return "blue"
+    if deg < 305:
+        return "purple"
+    return "pink"
 
 
 def _srgb_channel_to_linear(u8: int) -> float:
@@ -107,14 +151,14 @@ def lstar_from_rgb(r: int, g: int, b: int) -> float:
 
 
 def relative_luminance(hex_str: str) -> float:
-    """Luminância relativa WCAG (0.0 a 1.0)."""
+    """Compute WCAG relative luminance (0.0 to 1.0)."""
     r, g, b = hex_to_rgb(hex_str)
     _, y, _ = rgb_to_xyz(r, g, b)
     return max(0.0, min(1.0, y / 100.0))
 
 
 def contrast_ratio(hex1: str, hex2: str) -> float:
-    """Calcula a razão de contraste WCAG 2.1 entre duas cores hex (1.0 a 21.0)."""
+    """Compute WCAG 2.1 contrast ratio between two hex colors (1.0 to 21.0)."""
     l1 = relative_luminance(hex1)
     l2 = relative_luminance(hex2)
     lighter = max(l1, l2)
@@ -123,11 +167,11 @@ def contrast_ratio(hex1: str, hex2: str) -> float:
 
 
 # ==============================================================================
-# 2. MODELO DE APARÊNCIA DE CORES CAM16 & SOLVER HCT (MATERIAL DESIGN 3)
+# 2. CAM16 COLOR APPEARANCE MODEL & HCT SOLVER (MATERIAL DESIGN 3)
 # ==============================================================================
 
 class _ViewingConditions:
-    """Condições de visualização padrão sRGB / D65 do Material Color Utilities."""
+    """Standard sRGB / D65 viewing conditions from Material Color Utilities."""
 
     def __init__(self) -> None:
         wx, wy, wz = _D65_WHITE
@@ -177,7 +221,7 @@ _VC = _ViewingConditions()
 
 
 def rgb_to_hct(r: int, g: int, b: int) -> tuple[float, float, float]:
-    """Converte RGB (0-255) para HCT (hue: 0-360, chroma: >=0, tone: 0-100)."""
+    """Convert RGB (0-255) to HCT (hue: 0-360, chroma: >=0, tone: 0-100)."""
     x, y, z = rgb_to_xyz(r, g, b)
     tone = lstar_from_y(y)
 
@@ -217,16 +261,13 @@ def rgb_to_hct(r: int, g: int, b: int) -> tuple[float, float, float]:
 
 
 def hex_to_hct(hex_str: str) -> tuple[float, float, float]:
+    """Convert a hex color string to HCT."""
     r, g, b = hex_to_rgb(hex_str)
     return rgb_to_hct(r, g, b)
 
 
 def _cam16_jch_to_xyz(j: float, chroma: float, hue: float) -> tuple[float, float, float]:
-    """Converte CAM16 (J, C, H) para XYZ D65."""
-    if j <= 0.0 or chroma <= 0.0:
-        y = _VC.aw * ((j / 100.0) ** (1.0 / (_VC.c * _VC.z)))
-        # Acromático fallback
-        _ = y
+    """Convert CAM16 (J, C, H) to D65 XYZ."""
     alpha = 0.0 if (chroma == 0.0 or j == 0.0) else chroma / math.sqrt(j / 100.0)
     t = (alpha / ((1.64 - (0.29 ** _VC.n)) ** 0.73)) ** (1.0 / 0.9)
     h_rad = math.radians(hue)
@@ -262,7 +303,7 @@ def _cam16_jch_to_xyz(j: float, chroma: float, hue: float) -> tuple[float, float
 
 
 def _solve_j_for_tone(chroma: float, hue: float, target_y: float) -> tuple[float, float, float] | None:
-    """Encontra o CAM16 J que produz Y == target_y mantendo o gamut linear RGB válido [0..100]."""
+    """Find CAM16 J yielding Y == target_y within valid linear RGB gamut [0..100]."""
     low_j = 0.0
     high_j = 100.0
     best_lin: tuple[float, float, float] | None = None
@@ -294,8 +335,8 @@ def _solve_j_for_tone(chroma: float, hue: float, target_y: float) -> tuple[float
 
 def hct_to_hex(hue: float, chroma: float, tone: float) -> str:
     """
-    Resolve a cor sRGB (#rrggbb) correspondente a (hue, chroma, tone) no espaço HCT,
-    reduzindo o chroma suavemente caso a combinação saia do gamut sRGB.
+    Resolve the sRGB color (#rrggbb) for (hue, chroma, tone) in HCT space,
+    smoothly reducing chroma when the target falls outside the sRGB gamut.
     """
     tone = max(0.0, min(100.0, float(tone)))
     if tone < 0.0001:
@@ -307,7 +348,6 @@ def hct_to_hex(hue: float, chroma: float, tone: float) -> str:
     chroma = max(0.0, float(chroma))
     target_y = y_from_lstar(tone)
 
-    # Verifica se o chroma alvo cabe no gamut; caso contrário, busca binária no chroma
     candidate = _solve_j_for_tone(chroma, hue, target_y)
     if candidate is None and chroma > 0.0:
         lo_c = 0.0
@@ -324,7 +364,6 @@ def hct_to_hex(hue: float, chroma: float, tone: float) -> str:
         candidate = best_lin
 
     if candidate is None:
-        # Fallback acromático exato para o Tone (CIE L*)
         gray = _linear_to_srgb_channel(target_y)
         return rgb_to_hex(gray, gray, gray)
 
@@ -337,12 +376,13 @@ def hct_to_hex(hue: float, chroma: float, tone: float) -> str:
 
 
 # ==============================================================================
-# 3. PALETAS TONAIS & ESQUEMA COMPLETO MATERIAL DESIGN 3
+# 3. TONAL PALETTES & COMPLETE MATERIAL DESIGN 3 SCHEME
 # ==============================================================================
 
 @dataclass(frozen=True)
 class TonalPalette:
-    """Paleta tonal M3 parametrizada por Hue e Chroma no espaço HCT."""
+    """Material Design 3 tonal palette parameterized by Hue and Chroma in HCT space."""
+
     hue: float
     chroma: float
 
@@ -352,14 +392,14 @@ class TonalPalette:
 
 def build_m3_scheme(seed_hex: str, is_dark: bool = True) -> dict[str, str]:
     """
-    Constrói o dicionário completo de Design Tokens de Cor do Material Design 3
-    (SchemeTonalSpot) a partir de uma cor semente extraída do papel de parede.
+    Build a complete Material Design 3 Color Design Tokens dictionary
+    (SchemeTonalSpot) from a wallpaper seed color.
 
-    Retorna todas as roles padrão do M3 + roles auxiliares para ícones tonais.
+    Returns standard M3 roles plus auxiliary tonal roles for desktop SVG icons.
     """
     hue, src_chroma, _ = hex_to_hct(seed_hex)
 
-    # Evita cores lavadas ou ruído de matiz em wallpapers quase monocromáticos
+    # Avoid washed-out colors or hue noise on near-monochrome wallpapers
     if src_chroma < 8.0:
         primary_chroma = 20.0
         secondary_chroma = 12.0
@@ -377,7 +417,7 @@ def build_m3_scheme(seed_hex: str, is_dark: bool = True) -> dict[str, str]:
     error_pal = TonalPalette(hue=25.0, chroma=84.0)
 
     if is_dark:
-        scheme = {
+        return {
             "seed": seed_hex.lower(),
             "mode": "dark",
             "hue": f"{hue:.1f}",
@@ -422,7 +462,7 @@ def build_m3_scheme(seed_hex: str, is_dark: bool = True) -> dict[str, str]:
             "primaryFixedDim": primary_pal.tone(80),
             "onPrimaryFixed": primary_pal.tone(10),
             "onPrimaryFixedVariant": primary_pal.tone(30),
-            # Roles tonais específicos para renderização de ícones SVG no desktop
+            # Icon-specific tonal roles
             "iconFolderBack": primary_pal.tone(46),
             "iconFolderFrontTop": primary_pal.tone(76),
             "iconFolderFrontBottom": primary_pal.tone(68),
@@ -435,67 +475,65 @@ def build_m3_scheme(seed_hex: str, is_dark: bool = True) -> dict[str, str]:
             "iconAppSurface": primary_pal.tone(26),
             "iconAppGlyph": primary_pal.tone(88),
         }
-    else:
-        scheme = {
-            "seed": seed_hex.lower(),
-            "mode": "light",
-            "hue": f"{hue:.1f}",
-            # Primary
-            "primary": primary_pal.tone(40),
-            "onPrimary": primary_pal.tone(100),
-            "primaryContainer": primary_pal.tone(90),
-            "onPrimaryContainer": primary_pal.tone(10),
-            # Secondary
-            "secondary": secondary_pal.tone(40),
-            "onSecondary": secondary_pal.tone(100),
-            "secondaryContainer": secondary_pal.tone(90),
-            "onSecondaryContainer": secondary_pal.tone(10),
-            # Tertiary
-            "tertiary": tertiary_pal.tone(40),
-            "onTertiary": tertiary_pal.tone(100),
-            "tertiaryContainer": tertiary_pal.tone(90),
-            "onTertiaryContainer": tertiary_pal.tone(10),
-            # Error
-            "error": error_pal.tone(40),
-            "onError": error_pal.tone(100),
-            "errorContainer": error_pal.tone(90),
-            "onErrorContainer": error_pal.tone(10),
-            # Surfaces & Neutrals
-            "surface": neutral_pal.tone(98),
-            "surfaceDim": neutral_pal.tone(87),
-            "surfaceBright": neutral_pal.tone(98),
-            "surfaceContainerLowest": neutral_pal.tone(100),
-            "surfaceContainerLow": neutral_pal.tone(96),
-            "surfaceContainer": neutral_pal.tone(94),
-            "surfaceContainerHigh": neutral_pal.tone(92),
-            "surfaceContainerHighest": neutral_pal.tone(90),
-            "onSurface": neutral_pal.tone(10),
-            "onSurfaceVariant": neutral_var_pal.tone(30),
-            "outline": neutral_var_pal.tone(50),
-            "outlineVariant": neutral_var_pal.tone(80),
-            # Fixed & Inverse
-            "inverseSurface": neutral_pal.tone(20),
-            "inverseOnSurface": neutral_pal.tone(95),
-            "inversePrimary": primary_pal.tone(80),
-            "primaryFixed": primary_pal.tone(90),
-            "primaryFixedDim": primary_pal.tone(80),
-            "onPrimaryFixed": primary_pal.tone(10),
-            "onPrimaryFixedVariant": primary_pal.tone(30),
-            # Roles tonais específicos para renderização de ícones SVG no desktop
-            "iconFolderBack": primary_pal.tone(32),
-            "iconFolderFrontTop": primary_pal.tone(52),
-            "iconFolderFrontBottom": primary_pal.tone(44),
-            "iconFolderHighlight": primary_pal.tone(72),
-            "iconFolderGlyph": primary_pal.tone(99),
-            "iconFolderPaper": neutral_pal.tone(99),
-            "iconDocBody": neutral_pal.tone(97),
-            "iconDocFold": neutral_pal.tone(86),
-            "iconDocStroke": neutral_var_pal.tone(76),
-            "iconAppSurface": primary_pal.tone(88),
-            "iconAppGlyph": primary_pal.tone(22),
-        }
 
-    return scheme
+    return {
+        "seed": seed_hex.lower(),
+        "mode": "light",
+        "hue": f"{hue:.1f}",
+        # Primary
+        "primary": primary_pal.tone(40),
+        "onPrimary": primary_pal.tone(100),
+        "primaryContainer": primary_pal.tone(90),
+        "onPrimaryContainer": primary_pal.tone(10),
+        # Secondary
+        "secondary": secondary_pal.tone(40),
+        "onSecondary": secondary_pal.tone(100),
+        "secondaryContainer": secondary_pal.tone(90),
+        "onSecondaryContainer": secondary_pal.tone(10),
+        # Tertiary
+        "tertiary": tertiary_pal.tone(40),
+        "onTertiary": tertiary_pal.tone(100),
+        "tertiaryContainer": tertiary_pal.tone(90),
+        "onTertiaryContainer": tertiary_pal.tone(10),
+        # Error
+        "error": error_pal.tone(40),
+        "onError": error_pal.tone(100),
+        "errorContainer": error_pal.tone(90),
+        "onErrorContainer": error_pal.tone(10),
+        # Surfaces & Neutrals
+        "surface": neutral_pal.tone(98),
+        "surfaceDim": neutral_pal.tone(87),
+        "surfaceBright": neutral_pal.tone(98),
+        "surfaceContainerLowest": neutral_pal.tone(100),
+        "surfaceContainerLow": neutral_pal.tone(96),
+        "surfaceContainer": neutral_pal.tone(94),
+        "surfaceContainerHigh": neutral_pal.tone(92),
+        "surfaceContainerHighest": neutral_pal.tone(90),
+        "onSurface": neutral_pal.tone(10),
+        "onSurfaceVariant": neutral_var_pal.tone(30),
+        "outline": neutral_var_pal.tone(50),
+        "outlineVariant": neutral_var_pal.tone(80),
+        # Fixed & Inverse
+        "inverseSurface": neutral_pal.tone(20),
+        "inverseOnSurface": neutral_pal.tone(95),
+        "inversePrimary": primary_pal.tone(80),
+        "primaryFixed": primary_pal.tone(90),
+        "primaryFixedDim": primary_pal.tone(80),
+        "onPrimaryFixed": primary_pal.tone(10),
+        "onPrimaryFixedVariant": primary_pal.tone(30),
+        # Icon-specific tonal roles
+        "iconFolderBack": primary_pal.tone(32),
+        "iconFolderFrontTop": primary_pal.tone(52),
+        "iconFolderFrontBottom": primary_pal.tone(44),
+        "iconFolderHighlight": primary_pal.tone(72),
+        "iconFolderGlyph": primary_pal.tone(99),
+        "iconFolderPaper": neutral_pal.tone(99),
+        "iconDocBody": neutral_pal.tone(97),
+        "iconDocFold": neutral_pal.tone(86),
+        "iconDocStroke": neutral_var_pal.tone(76),
+        "iconAppSurface": primary_pal.tone(88),
+        "iconAppGlyph": primary_pal.tone(22),
+    }
 
 
 def _smoothstep(edge0: float, edge1: float, x: float) -> float:
@@ -511,12 +549,12 @@ def build_icon_tint_luts(
     seed_hex: str,
 ) -> tuple[list[tuple[int, int, int]], list[tuple[int, int, int]]]:
     """
-    Constrói duas tabelas de consulta RGB de 256 entradas (`lut_primary`, `lut_neutral`)
-    preservando a luminância perceptual (CIE L* / Tone) no espaço HCT do Material Design 3.
+    Build two 256-entry RGB lookup tables (`lut_primary`, `lut_neutral`) that preserve
+    perceptual luminance (CIE L* / Tone) in Material Design 3 HCT space.
 
-    - `lut_primary`: aplica matiz e croma primários do wallpaper nas regiões cromáticas,
-      atenuando suavemente próximo ao preto puro e branco puro para manter contraste.
-    - `lut_neutral`: aplica leve matização neutra para áreas originalmente cinzentas/brancas/pretas.
+    - `lut_primary`: applies the wallpaper's primary hue and chroma to chromatic regions,
+      tapering smoothly near pure black and pure white to preserve contrast.
+    - `lut_neutral`: applies subtle neutral tinting to originally gray/white/black regions.
     """
     hue, src_chroma, _ = hex_to_hct(seed_hex)
     if src_chroma < 8.0:
@@ -526,7 +564,7 @@ def build_icon_tint_luts(
         primary_chroma = max(38.0, min(72.0, src_chroma * 0.95))
         neutral_chroma = max(6.0, min(14.0, primary_chroma * 0.22))
 
-    # 33 pontos-chave (passo 8 + 255) para geração sub-20ms e interpolação linear exata
+    # 33 keyframes (step 8 + 255) for sub-20ms generation and accurate linear interpolation
     keyframes = list(range(0, 256, 8))
     if keyframes[-1] != 255:
         keyframes.append(255)
@@ -587,8 +625,8 @@ def recolor_rgb_m3(
     strength: float = 0.90,
 ) -> tuple[int, int, int]:
     """
-    Aplica o filtro tonal Material Design 3 a uma cor RGB (0-255), preservando
-    sua luminância (Rec.601 para paridade exata com Pillow 'L') e separação tonal.
+    Apply the Material Design 3 tonal filter to an RGB color (0-255), preserving
+    its Rec.601 luminance (for exact parity with Pillow 'L') and tonal separation.
     """
     lum = max(0, min(255, int(round(0.299 * r + 0.587 * g + 0.114 * b))))
     mx = max(r, g, b)
@@ -608,4 +646,3 @@ def recolor_rgb_m3(
     out_g = max(0, min(255, int(round(g + (tg - g) * s))))
     out_b = max(0, min(255, int(round(b + (tb - b) * s))))
     return (out_r, out_g, out_b)
-

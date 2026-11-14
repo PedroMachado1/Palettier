@@ -1,16 +1,18 @@
-#!/usr/bin/env python3
 """
-m3_icons.py — Gerador Dinâmico de Pacote de Ícones Material Design 3
-Gera um tema de ícones compatível com a especificação Freedesktop Icon Theme
-(~/.local/share/icons/WallpaperSync-M3-{A,B}) sincronizado com a paleta
-Material Design 3 extraída do papel de parede.
+palettier.icons — Dynamic Material Design 3 Icon Pack Generator.
 
-Inclui:
-- Pastas e locais do sistema (scalable/places/) com glifos Material Symbols
-- Mimetypes (scalable/mimetypes/) com semântica tonal M3
-- Ícones adaptativos de sistema/apps (scalable/apps/) em squircle Material You
-- Herança inteligente (Inherits=) de temas instalados (MoreWaita, Papirus, Adwaita)
-- Hot-reload atômico por alternância de slots (A <-> B) no GNOME/GTK
+Generates a Freedesktop Icon Theme compliant icon pack
+(~/.local/share/icons/Palettier-M3-{A,B}) synchronized with the Material Design 3
+palette extracted from the active wallpaper.
+
+Includes:
+- System places & folders (scalable/places/) with Material Symbols glyphs
+- Mimetypes (scalable/mimetypes/) with M3 tonal semantics
+- Shape-preserving M3 tonal tinting for all installed app icons (system, user,
+  Flatpak, Snap, and AppImage)
+- Optional Material You adaptive squircles (mode='squircle')
+- Smart theme inheritance (Inherits=) from installed themes (MoreWaita, Papirus, Adwaita)
+- Atomic hot-reload via A <-> B slot toggling on GNOME/GTK
 """
 
 from __future__ import annotations
@@ -26,30 +28,46 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from m3_palette import build_icon_tint_luts, build_m3_scheme, recolor_rgb_m3, rgb_to_hex
+from palettier.palette import build_icon_tint_luts, build_m3_scheme, recolor_rgb_m3, rgb_to_hex
 
-
-ICON_SLOT_A = "WallpaperSync-M3-A"
-ICON_SLOT_B = "WallpaperSync-M3-B"
+ICON_SLOT_A = "Palettier-M3-A"
+ICON_SLOT_B = "Palettier-M3-B"
 ICON_SLOTS = (ICON_SLOT_A, ICON_SLOT_B)
 VALID_ICON_MODES = ("system", "full", "places", "squircle", "off")
 DEFAULT_ICON_TINT_STRENGTH = 0.90
 _SUPPORTED_ICON_EXTENSIONS = (".svg", ".svgz", ".png", ".webp", ".jpg", ".jpeg", ".ico", ".xpm")
 
 
+def get_default_icon_mode() -> str:
+    """Return the default Material Design 3 icon pack generation mode."""
+    env_mode = os.environ.get("PALETTIER_ICON_MODE", "system").strip().lower()
+    return env_mode if env_mode in VALID_ICON_MODES else "system"
+
+
+def get_icon_tint_strength() -> float:
+    """Return the M3 tonal filter strength applied to app icons (0.0 to 1.0)."""
+    raw = os.environ.get("PALETTIER_ICON_TINT", "").strip()
+    if raw:
+        try:
+            return max(0.0, min(1.0, float(raw)))
+        except ValueError:
+            pass
+    return DEFAULT_ICON_TINT_STRENGTH
+
+
 def get_icons_base_dir() -> Path:
-    """Retorna o diretório XDG de ícones do usuário (~/.local/share/icons)."""
+    """Return the user's XDG icons directory (~/.local/share/icons)."""
     xdg_data = os.environ.get("XDG_DATA_HOME")
     base = Path(xdg_data) if xdg_data else (Path.home() / ".local" / "share")
     return base / "icons"
 
 
 def get_prev_icon_theme_marker() -> Path:
-    return get_icons_base_dir() / ".wallpapersync_prev_icon_theme"
+    return get_icons_base_dir() / ".palettier_prev_icon_theme"
 
 
 def get_bridged_desktop_icons_manifest() -> Path:
-    return get_icons_base_dir() / ".wallpapersync_desktop_icons.json"
+    return get_icons_base_dir() / ".palettier_desktop_icons.json"
 
 
 def _get_user_applications_dir() -> Path:
@@ -60,8 +78,8 @@ def _get_user_applications_dir() -> Path:
 
 def _rewrite_desktop_icon_value(txt: str, new_icon: str) -> tuple[str | None, str | None]:
     """
-    Substitui o campo `Icon=` apenas na seção `[Desktop Entry]`, preservando todo o restante
-    do arquivo `.desktop`. Retorna `(old_icon_value, new_text)` ou `(None, None)`.
+    Replace the `Icon=` key only within the `[Desktop Entry]` section, preserving
+    the rest of the `.desktop` file. Returns `(old_icon_value, new_text)` or `(None, None)`.
     """
     lines = txt.splitlines(keepends=True)
     in_main = False
@@ -90,7 +108,7 @@ def _rewrite_desktop_icon_value(txt: str, new_icon: str) -> tuple[str | None, st
 
 
 def _copy_icon_to_hicolor_backup(src_path: Path, hicolor_dir: Path, theme_icon_name: str) -> Path | None:
-    """Salva uma cópia intacta do ícone original em `hicolor` como fallback seguro."""
+    """Save an untouched copy of the original icon into `hicolor` as a safe fallback."""
     ext = src_path.suffix.lower()
     if ext in (".svg", ".svgz"):
         dst = hicolor_dir / "scalable" / "apps" / f"{theme_icon_name}{ext}"
@@ -115,15 +133,14 @@ def _copy_icon_to_hicolor_backup(src_path: Path, hicolor_dir: Path, theme_icon_n
 
 def bridge_user_desktop_absolute_icons() -> dict[str, dict[str, str]]:
     """
-    AppImages (ex: Gear Lever, AppImageLauncher ou .desktop manuais) frequentemente usam
-    caminhos absolutos `Icon=/caminho/.../icone.png` em `~/.local/share/applications/*.desktop`,
-    o que faz o GNOME Shell ignorar temas Freedesktop.
+    AppImages (e.g., Gear Lever, AppImageLauncher, or manual `.desktop` files) often use
+    absolute paths like `Icon=/path/.../icon.png` in `~/.local/share/applications/*.desktop`,
+    which causes GNOME Shell to bypass Freedesktop icon themes.
 
-    Esta função cria uma ponte 100% reversível:
-      1. Salva cópia intacta do ícone original em `~/.local/share/icons/hicolor/.../apps/`
-         (garantindo fallback caso outro tema ou `--icon-mode places` seja usado).
-      2. Registra o caminho original em `.wallpapersync_desktop_icons.json`.
-      3. Atualiza `Icon=` no `.desktop` do usuário para o nome temático `wallpapersync-app-*`.
+    This function builds a 100% reversible bridge:
+      1. Saves an intact copy of the original icon into `~/.local/share/icons/hicolor/.../apps/`.
+      2. Records the original path in `.palettier_desktop_icons.json`.
+      3. Updates `Icon=` in the user `.desktop` file to a themeable `palettier-app-*` name.
     """
     manifest_path = get_bridged_desktop_icons_manifest()
     manifest: dict[str, dict[str, str]] = {}
@@ -153,7 +170,6 @@ def bridge_user_desktop_absolute_icons() -> dict[str, dict[str, str]]:
         desktop_files = []
 
     for dfile in desktop_files:
-        # Nunca modifica symlinks (ex: exportados pelo Flatpak/Snap) ou arquivos somente leitura
         if dfile.is_symlink() or not os.access(dfile, os.W_OK):
             continue
         try:
@@ -164,7 +180,6 @@ def bridge_user_desktop_absolute_icons() -> dict[str, dict[str, str]]:
         dkey = str(dfile)
         existing = manifest.get(dkey)
 
-        # Verifica qual o valor atual de Icon= na seção principal
         cur_icon = None
         in_main = False
         is_hidden = False
@@ -194,7 +209,6 @@ def bridge_user_desktop_absolute_icons() -> dict[str, dict[str, str]]:
         if is_hidden or not cur_icon:
             continue
 
-        # Se já está usando nosso nome ponte, garante apenas que o backup hicolor exista
         if isinstance(existing, dict) and cur_icon == existing.get("theme_icon_name"):
             orig_p = Path(existing.get("original_icon", "")).expanduser()
             backup_p = Path(existing.get("hicolor_backup", ""))
@@ -205,7 +219,6 @@ def bridge_user_desktop_absolute_icons() -> dict[str, dict[str, str]]:
                     changed = True
             continue
 
-        # Só faz ponte para caminhos absolutos ou ~/...
         if not (cur_icon.startswith("/") or cur_icon.startswith("~/")):
             continue
 
@@ -214,10 +227,10 @@ def bridge_user_desktop_absolute_icons() -> dict[str, dict[str, str]]:
             continue
 
         safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "-", dfile.stem).strip("-") or "app"
-        theme_icon_name = f"wallpapersync-app-{safe_stem}"
+        theme_icon_name = f"palettier-app-{safe_stem}"
         if theme_icon_name in used_names:
             digest = hashlib.sha1(dkey.encode("utf-8")).hexdigest()[:6]
-            theme_icon_name = f"wallpapersync-app-{safe_stem}-{digest}"
+            theme_icon_name = f"palettier-app-{safe_stem}-{digest}"
 
         backup_path = _copy_icon_to_hicolor_backup(orig_path, hicolor_dir, theme_icon_name)
         if backup_path is None:
@@ -249,8 +262,8 @@ def bridge_user_desktop_absolute_icons() -> dict[str, dict[str, str]]:
 
 def restore_bridged_desktop_icons() -> list[Path]:
     """
-    Restaura todos os `.desktop` de usuário que tinham `Icon=/caminho/absoluto`
-    de volta aos valores originais e remove os backups temporários de `hicolor`.
+    Restore all user `.desktop` files that originally had `Icon=/absolute/path`
+    back to their original values and remove temporary `hicolor` backups.
     """
     removed: list[Path] = []
     manifest_path = get_bridged_desktop_icons_manifest()
@@ -298,19 +311,8 @@ def restore_bridged_desktop_icons() -> list[Path]:
     return removed
 
 
-def get_icon_tint_strength() -> float:
-    """Retorna a intensidade do filtro tonal M3 aplicado aos ícones de apps (0.0 a 1.0)."""
-    raw = os.environ.get("WALLPAPERSYNC_ICON_TINT", "").strip()
-    if raw:
-        try:
-            return max(0.0, min(1.0, float(raw)))
-        except ValueError:
-            pass
-    return DEFAULT_ICON_TINT_STRENGTH
-
-
 def _get_xdg_data_dirs() -> list[Path]:
-    """Retorna diretórios XDG_DATA_DIRS combinados com caminhos padrão do sistema."""
+    """Return combined XDG_DATA_DIRS and standard system data directories."""
     dirs: list[Path] = []
     seen: set[str] = set()
 
@@ -327,7 +329,6 @@ def _get_xdg_data_dirs() -> list[Path]:
     _add(Path("/var/lib/snapd/desktop"))
     _add(Path("/usr/local/share"))
     _add(Path("/usr/share"))
-
     for raw in os.environ.get("XDG_DATA_DIRS", "").split(":"):
         raw = raw.strip()
         if raw:
@@ -337,8 +338,8 @@ def _get_xdg_data_dirs() -> list[Path]:
 
 def discover_installed_app_icons() -> set[str]:
     """
-    Descobre os nomes de ícones (`Icon=`) de todos os aplicativos instalados
-    (.desktop em sistema, usuário, Flatpak, Snap e XDG_DATA_DIRS).
+    Discover `Icon=` names across all installed applications
+    (`.desktop` files in system, user, Flatpak, Snap, and XDG_DATA_DIRS).
     """
     icon_names: set[str] = set()
     app_dirs = [base / "applications" for base in _get_xdg_data_dirs()]
@@ -388,8 +389,6 @@ def discover_installed_app_icons() -> set[str]:
 
             if is_hidden or not icon_val:
                 continue
-            # Caminhos absolutos são carregados direto do disco e não podem ser
-            # sobrescritos via tema Freedesktop (exceto quando pontuados via bridge).
             if icon_val.startswith("/") or icon_val.startswith("~/"):
                 continue
 
@@ -406,7 +405,7 @@ def discover_installed_app_icons() -> set[str]:
 
 
 def _parse_icon_size_score(size_name: str) -> int | None:
-    """Pontua pastas de resolução de ícones (ignorando variantes symbolic)."""
+    """Score icon resolution directory names (skipping symbolic variants)."""
     low = size_name.lower()
     if "symbolic" in low:
         return None
@@ -440,11 +439,11 @@ def index_system_app_icons(
     preferred_theme: str | None = None,
 ) -> dict[str, Path]:
     """
-    Localiza o arquivo de ícone original (.svg, .svgz, .png, .webp, .jpg, .ico, .xpm)
-    para cada nome em `wanted_names`, respeitando a prioridade:
-      tema base preferido > hicolor / ícones soltos > Adwaita > demais temas > pixmaps,
-    e preferindo sempre SVG vetorial ou a maior resolução disponível.
-    Nunca lê os slots gerados `WallpaperSync-M3-{A,B}`.
+    Locate the original icon file (.svg, .svgz, .png, .webp, .jpg, .ico, .xpm)
+    for each name in `wanted_names`, ordered by priority:
+      preferred base theme > hicolor / loose icons > Adwaita > other themes > pixmaps,
+    preferring vector SVG or highest resolution available.
+    Never reads generated slots `Palettier-M3-{A,B}`.
     """
     if not wanted_names:
         return {}
@@ -468,7 +467,6 @@ def index_system_app_icons(
         fmt_prio = format_prio_map.get(ext, 0)
         if fmt_prio == 0:
             return
-        # Evita ícones monocromáticos -symbolic ao resolver ícones coloridos de apps
         if icon_name.endswith("-symbolic") != fpath.stem.endswith("-symbolic"):
             return
         try:
@@ -500,7 +498,6 @@ def index_system_app_icons(
             continue
 
         for theme_dir in entries:
-            # Ícones soltos diretamente em ~/.local/share/icons/ ou ~/.icons/ (comum em AppImages)
             if theme_dir.is_file():
                 if theme_dir.suffix.lower() in format_prio_map:
                     _consider(theme_dir.stem, theme_dir, 3, 128)
@@ -517,7 +514,6 @@ def index_system_app_icons(
             for sub in subdirs:
                 if not sub.is_dir():
                     continue
-                # Layout padrão: <theme>/<size>/apps/*
                 size_score = _parse_icon_size_score(sub.name)
                 if size_score is not None:
                     apps_sub = sub / "apps"
@@ -528,7 +524,6 @@ def index_system_app_icons(
                                     _consider(entry.stem, entry, t_prio, size_score)
                         except OSError:
                             pass
-                # Layout alternativo: <theme>/apps/<size>/*
                 elif sub.name == "apps":
                     try:
                         for ssub in sub.iterdir():
@@ -558,7 +553,7 @@ def index_system_app_icons(
 
 
 # ==============================================================================
-# FILTRO TONAL MATERIAL DESIGN 3 PARA ÍCONES ORIGINAIS (SVG & PNG)
+# MATERIAL DESIGN 3 TONAL FILTER FOR ORIGINAL ICONS (SVG & RASTER)
 # ==============================================================================
 
 _SVG_NAMED_COLORS: dict[str, tuple[int, int, int]] = {
@@ -659,7 +654,9 @@ _SVG_NAMED_COLORS: dict[str, tuple[int, int, int]] = {
     "yellowgreen": (154, 205, 50),
 }
 
-_SVG_SKIP_COLOR_VALUES = frozenset({"none", "transparent", "currentcolor", "inherit", "context-fill", "context-stroke"})
+_SVG_SKIP_COLOR_VALUES = frozenset(
+    {"none", "transparent", "currentcolor", "inherit", "context-fill", "context-stroke"}
+)
 _SVG_COLOR_PROP_ATTR_RE = re.compile(
     r'\b(fill|stroke|stop-color|flood-color|lighting-color|color)\s*=\s*(["\'])([^"\']*)\2',
     re.IGNORECASE,
@@ -696,15 +693,14 @@ def _recolor_color_token(
     strength: float,
 ) -> str | None:
     """
-    Tenta converter e aplicar o filtro M3 a uma cor CSS/SVG (#hex, rgb(), rgba(), nome).
-    Retorna None caso o valor deva permanecer inalterado (ex: none, url(#...), currentColor).
+    Attempt to parse and apply the M3 filter to a CSS/SVG color (#hex, rgb(), rgba(), named).
+    Returns None if the value should remain untouched (e.g., none, url(#...), currentColor).
     """
     s = raw_val.strip()
     low = s.lower()
     if not low or low in _SVG_SKIP_COLOR_VALUES or low.startswith(("url(", "var(")):
         return None
 
-    # 1. Hexadecimal (#RGB, #RGBA, #RRGGBB, #RRGGBBAA)
     if low.startswith("#"):
         hx = low[1:]
         if not re.fullmatch(r"[0-9a-f]{3,8}", hx):
@@ -727,7 +723,6 @@ def _recolor_color_token(
             return f"#{nr:02x}{ng:02x}{nb:02x}{a:02x}"
         return None
 
-    # 2. rgb(...) / rgba(...)
     m_rgb = re.fullmatch(r"rgba?\(\s*([^)]+)\s*\)", low)
     if m_rgb:
         inner = m_rgb.group(1).replace("/", ",")
@@ -743,7 +738,6 @@ def _recolor_color_token(
                 return rgb_to_hex(nr, ng, nb)
         return None
 
-    # 3. Nome de cor SVG/CSS padrão
     named = _SVG_NAMED_COLORS.get(low)
     if named is not None:
         nr, ng, nb = recolor_rgb_m3(named[0], named[1], named[2], lut_primary, lut_neutral, strength)
@@ -760,8 +754,8 @@ def recolor_pil_image(
     max_dim: int = 256,
 ):
     """
-    Aplica o filtro tonal Material Design 3 a uma imagem PIL mantendo exatamente
-    a silhueta, o canal alpha original e a geometria do ícone.
+    Apply the Material Design 3 tonal filter to a PIL image while preserving
+    exact silhouette, original alpha channel, and icon geometry.
     """
     from PIL import Image
 
@@ -804,7 +798,7 @@ def recolor_png_image(
     lut_neutral: list[tuple[int, int, int]],
     strength: float = DEFAULT_ICON_TINT_STRENGTH,
 ) -> bool:
-    """Recolore um ícone raster (PNG/XPM) salvando o resultado como PNG com alpha original."""
+    """Recolor a raster icon (PNG/WEBP/JPG/ICO/XPM) saving as PNG with original alpha."""
     try:
         from PIL import Image
 
@@ -829,10 +823,11 @@ def recolor_svg_content(
     strength: float = DEFAULT_ICON_TINT_STRENGTH,
 ) -> str:
     """
-    Aplica o filtro tonal Material Design 3 diretamente nas propriedades de cor
-    de um SVG (atributos XML, style='', blocos <style> e PNGs embutidos em base64),
-    preservando 100% dos caminhos, gradientes `url(#...)`, IDs e geometria original.
+    Apply the Material Design 3 tonal filter directly to SVG color properties
+    (XML attributes, style='', <style> blocks, and base64-embedded PNGs),
+    preserving 100% of paths, `url(#...)` gradients, IDs, and original geometry.
     """
+
     def _replace_attr(m: re.Match) -> str:
         prop, quote, val = m.group(1), m.group(2), m.group(3)
         recolored = _recolor_color_token(val, lut_primary, lut_neutral, strength)
@@ -883,8 +878,8 @@ def recolor_svg_content(
 
 def detect_inherit_themes(is_dark: bool = True) -> list[str]:
     """
-    Detecta temas de ícones instalados no sistema para compor a cadeia `Inherits=`
-    garantindo que nenhum ícone de app ou ação fique sem fallback.
+    Detect installed system icon themes to build an `Inherits=` fallback chain
+    ensuring no app or action icon is left without a fallback.
     """
     search_roots = [
         get_icons_base_dir(),
@@ -918,11 +913,11 @@ def detect_inherit_themes(is_dark: bool = True) -> list[str]:
 
 
 # ==============================================================================
-# 1. GLIFOS MATERIAL SYMBOLS (GRID 24x24, TRAÇO ROUNDED M3)
+# 1. MATERIAL SYMBOLS GLYPHS (24x24 GRID, M3 ROUNDED STROKE)
 # ==============================================================================
 
 def _glyph_paths(name: str, color: str) -> str:
-    """Retorna elementos SVG no grid 24x24 no estilo Material Symbols Rounded."""
+    """Return SVG elements on a 24x24 grid in Material Symbols Rounded style."""
     stroke_attrs = f'fill="none" stroke="{color}" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"'
     fill_attrs = f'fill="{color}"'
 
@@ -1053,11 +1048,11 @@ def _glyph_paths(name: str, color: str) -> str:
 
 
 # ==============================================================================
-# 2. RENDERIZADORES SVG (MATERIAL DESIGN 3)
+# 2. SVG RENDERERS (MATERIAL DESIGN 3)
 # ==============================================================================
 
 def render_folder_svg(scheme: dict[str, str], glyph_name: str | None = None, is_open: bool = False) -> str:
-    """Renderiza ícone de pasta Material Design 3 (camadas tonais + glifo opcional)."""
+    """Render a Material Design 3 folder icon (tonal layers + optional glyph)."""
     back_col = scheme["iconFolderBack"]
     front_top = scheme["iconFolderFrontTop"]
     front_bot = scheme["iconFolderFrontBottom"]
@@ -1109,7 +1104,7 @@ def render_folder_svg(scheme: dict[str, str], glyph_name: str | None = None, is_
 
 
 def render_trash_svg(scheme: dict[str, str], full: bool = False) -> str:
-    """Renderiza ícone de Lixeira (user-trash / user-trash-full) em Material Design 3."""
+    """Render a Material Design 3 Trash icon (user-trash / user-trash-full)."""
     body_top = scheme["surfaceContainerHighest"]
     body_bot = scheme["surfaceContainerHigh"]
     stroke_col = scheme["outlineVariant"]
@@ -1146,7 +1141,7 @@ def render_mimetype_svg(
     glyph_name: str = "documents",
     badge_text: str = "",
 ) -> str:
-    """Renderiza ícone de tipo de arquivo (Mimetype) em folha elevada Material Design 3."""
+    """Render a Material Design 3 elevated document mimetype icon."""
     doc_body = scheme["iconDocBody"]
     doc_fold = scheme["iconDocFold"]
     doc_stroke = scheme["iconDocStroke"]
@@ -1185,7 +1180,7 @@ def render_mimetype_svg(
 
 
 def render_app_squircle_svg(scheme: dict[str, str], glyph_name: str, role: str = "primary") -> str:
-    """Renderiza ícone de aplicativo no estilo Material You Adaptive Squircle."""
+    """Render a Material You Adaptive Squircle application icon."""
     if role == "primary":
         surface = scheme["iconAppSurface"]
         glyph_col = scheme["iconAppGlyph"]
@@ -1205,7 +1200,7 @@ def render_app_squircle_svg(scheme: dict[str, str], glyph_name: str, role: str =
 
 
 # ==============================================================================
-# 3. CATÁLOGO DE ÍCONES FREEDESKTOP (PLACES, MIMETYPES, APPS)
+# 3. FREEDESKTOP ICON CATALOG (PLACES, MIMETYPES, APPS)
 # ==============================================================================
 
 FOLDER_SPECS: dict[str, tuple[str | None, bool]] = {
@@ -1356,11 +1351,11 @@ FULL_APP_SYMLINKS: dict[str, str] = {
 
 
 # ==============================================================================
-# 4. CONSTRUÇÃO DO TEMA FREEDESKTOP & HOT-RELOAD NO GNOME
+# 4. FREEDESKTOP THEME BUILDER & GNOME HOT-RELOAD
 # ==============================================================================
 
 def _resolve_preferred_base_theme(current_theme: str | None = None) -> str | None:
-    """Obtém o tema base original do usuário (antes do WallpaperSync) se disponível."""
+    """Return the user's original base icon theme (prior to Palettier) if available."""
     if current_theme and current_theme not in ICON_SLOTS:
         return current_theme
     marker = get_prev_icon_theme_marker()
@@ -1375,7 +1370,7 @@ def _resolve_preferred_base_theme(current_theme: str | None = None) -> str | Non
 
 
 def _read_svg_source(src_path: Path) -> str:
-    """Lê texto SVG de arquivos .svg ou .svgz (com descompressão gzip)."""
+    """Read SVG text from .svg or gzip-compressed .svgz files."""
     if src_path.suffix.lower() == ".svgz":
         with gzip.open(src_path, "rb") as gz:
             return gz.read().decode("utf-8", errors="ignore")
@@ -1388,7 +1383,7 @@ def build_index_theme(
     include_apps: bool = False,
     include_png_apps: bool = False,
 ) -> str:
-    """Gera o conteúdo do arquivo `index.theme` no padrão Freedesktop."""
+    """Generate a Freedesktop-compliant `index.theme` descriptor."""
     dirs = ["scalable/places", "scalable/mimetypes"]
     if include_apps:
         dirs.append("scalable/apps")
@@ -1398,7 +1393,7 @@ def build_index_theme(
     lines = [
         "[Icon Theme]",
         f"Name={theme_name}",
-        "Comment=Material Design 3 dynamic icon theme generated by WallpaperSync",
+        "Comment=Material Design 3 dynamic icon theme generated by Palettier",
         f"Inherits={','.join(inherits)}",
         f"Directories={','.join(dirs)}",
         "",
@@ -1443,17 +1438,17 @@ def generate_icon_theme_directory(
     target_dir: Path,
     scheme: dict[str, str],
     mode: str = "system",
-    theme_display_name: str = "WallpaperSync Material 3",
+    theme_display_name: str = "Palettier Material 3",
     preferred_base_theme: str | None = None,
     tint_strength: float | None = None,
 ) -> int:
     """
-    Escreve a árvore completa do tema de ícones Material Design 3 em `target_dir`.
-    - `places`: pastas e mimetypes em SVG M3.
-    - `system` / `full`: pastas/mimetypes em M3 + ícones originais de todos os apps
-      instalados recoloridos com filtro tonal M3 mantendo formato e geometria intactos.
-    - `squircle`: pastas/mimetypes + ícones uniformes em squircle Material You.
-    Retorna a quantidade de ícones/symlinks criados.
+    Write the complete Material Design 3 icon theme tree into `target_dir`.
+    - `places`: M3 SVG folders and mimetypes.
+    - `system` / `full`: M3 folders/mimetypes + shape-preserving M3 tinted icons
+      for all installed applications.
+    - `squircle`: M3 folders/mimetypes + uniform Material You squircle app icons.
+    Returns the total number of icons/symlinks created.
     """
     if mode not in VALID_ICON_MODES or mode == "off":
         return 0
@@ -1462,7 +1457,6 @@ def generate_icon_theme_directory(
     inherits = detect_inherit_themes(is_dark=is_dark)
     strength = get_icon_tint_strength() if tint_strength is None else max(0.0, min(1.0, float(tint_strength)))
 
-    # Limpa e recria diretório do slot alvo para evitar órfãos ao mudar de modo
     if target_dir.exists():
         shutil.rmtree(target_dir)
 
@@ -1473,13 +1467,11 @@ def generate_icon_theme_directory(
 
     count = 0
 
-    # 1. Places / Pastas
     for icon_name, (glyph_name, is_open) in FOLDER_SPECS.items():
         svg = render_folder_svg(scheme, glyph_name=glyph_name, is_open=is_open)
         (places_dir / f"{icon_name}.svg").write_text(svg, encoding="utf-8")
         count += 1
 
-    # Lixeira vazia / cheia
     (places_dir / "user-trash.svg").write_text(render_trash_svg(scheme, full=False), encoding="utf-8")
     (places_dir / "user-trash-full.svg").write_text(render_trash_svg(scheme, full=True), encoding="utf-8")
     count += 2
@@ -1494,7 +1486,6 @@ def generate_icon_theme_directory(
             link_path.symlink_to(f"{target}.svg")
             count += 1
 
-    # 2. Mimetypes
     for icon_name, (role, glyph, badge) in MIMETYPE_SPECS.items():
         svg = render_mimetype_svg(scheme, category_role=role, glyph_name=glyph, badge_text=badge)
         (mimes_dir / f"{icon_name}.svg").write_text(svg, encoding="utf-8")
@@ -1506,7 +1497,6 @@ def generate_icon_theme_directory(
             link_path.symlink_to(f"{target}.svg")
             count += 1
 
-    # 3. Apps
     has_svg_apps = False
     has_png_apps = False
 
@@ -1561,7 +1551,6 @@ def generate_icon_theme_directory(
                 link_path.symlink_to(f"{target}.svg")
                 count += 1
 
-    # 4. index.theme e cache GTK
     index_content = build_index_theme(
         theme_display_name,
         inherits,
@@ -1589,10 +1578,10 @@ def sync_m3_icon_pack(
     tint_strength: float | None = None,
 ) -> tuple[bool, dict[str, str], str | None]:
     """
-    Gera o pacote de ícones Material Design 3 no slot inativo (A <-> B) e ativa-o
-    via `gsettings` para forçar hot-reload imediato no GNOME / Nautilus / GTK.
+    Generate the Material Design 3 icon pack in the inactive slot (A <-> B) and
+    activate it via `gsettings` for immediate GNOME / Nautilus / GTK hot-reload.
 
-    Retorna `(updated: bool, m3_scheme: dict, active_slot: str | None)`.
+    Returns `(updated: bool, m3_scheme: dict, active_slot: str | None)`.
     """
     scheme = build_m3_scheme(accent_hex, is_dark=is_dark)
     if mode not in VALID_ICON_MODES:
@@ -1608,7 +1597,6 @@ def sync_m3_icon_pack(
     if gsettings_get_fn is not None:
         current_theme = gsettings_get_fn("org.gnome.desktop.interface", "icon-theme")
 
-    # Persiste o tema de ícones original do usuário antes de assumir o controle
     marker = get_prev_icon_theme_marker()
     if current_theme and current_theme not in ICON_SLOTS:
         try:
@@ -1629,7 +1617,7 @@ def sync_m3_icon_pack(
         target_dir=slot_dir,
         scheme=scheme,
         mode=mode,
-        theme_display_name="WallpaperSync Material 3",
+        theme_display_name="Palettier Material 3",
         preferred_base_theme=preferred_base_theme,
         tint_strength=tint_strength,
     )
@@ -1646,8 +1634,8 @@ def sync_m3_icon_pack(
 
 def uninstall_m3_icon_pack(gsettings_get_fn=None, gsettings_set_fn=None) -> list[Path]:
     """
-    Remove os slots WallpaperSync-M3-{A,B}, restaura o tema de ícones anterior
-    do usuário e reverte eventuais pontes de `.desktop` com caminhos absolutos.
+    Remove Palettier-M3-{A,B} slots, restore the user's previous icon theme,
+    and revert any bridged `.desktop` absolute icon paths.
     """
     removed: list[Path] = []
     removed.extend(restore_bridged_desktop_icons())
@@ -1691,7 +1679,7 @@ def render_html_preview(
     max_apps: int = 36,
     tint_strength: float | None = None,
 ) -> str:
-    """Gera uma página HTML autônoma para pré-visualizar a paleta e todos os ícones M3."""
+    """Generate a standalone HTML page previewing the M3 tonal palette and icons."""
     cards_places = []
     for name, (glyph, is_open) in FOLDER_SPECS.items():
         svg = render_folder_svg(scheme, glyph_name=glyph, is_open=is_open)
@@ -1755,14 +1743,14 @@ def render_html_preview(
     apps_section = (
         f'<div class="grid">{"".join(cards_apps)}</div>'
         if cards_apps
-        else '<p class="meta">Nenhum ícone de aplicativo .desktop encontrado neste ambiente.</p>'
+        else '<p class="meta">No .desktop application icons found in this environment.</p>'
     )
 
     return f"""<!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>WallpaperSync — Material Design 3 Icon Pack Preview</title>
+<title>Palettier — Material Design 3 Icon Pack Preview</title>
 <style>
   body {{
     margin: 0; padding: 32px; font-family: Inter, system-ui, sans-serif;
@@ -1799,15 +1787,15 @@ def render_html_preview(
 </style>
 </head>
 <body>
-  <h1>WallpaperSync Material Design 3 Icons</h1>
+  <h1>Palettier Material Design 3 Icons</h1>
   <p class="meta">Seed: <code>{scheme["seed"]}</code> · Mode: <code>{scheme["mode"]}</code> · Hue: <code>{scheme["hue"]}°</code> · Icon Mode: <code>{mode}</code></p>
-  <h2>Paleta Tonal Material Design 3</h2>
+  <h2>Material Design 3 Tonal Palette</h2>
   <div class="swatches">{swatches_html}</div>
-  <h2>Places &amp; Pastas ({len(cards_places)})</h2>
+  <h2>Places &amp; Folders ({len(cards_places)})</h2>
   <div class="grid">{''.join(cards_places)}</div>
   <h2>Mimetypes ({len(cards_mimes)})</h2>
   <div class="grid">{''.join(cards_mimes)}</div>
-  <h2>Aplicativos ({len(cards_apps)})</h2>
+  <h2>Applications ({len(cards_apps)})</h2>
   {apps_section}
 </body>
 </html>
