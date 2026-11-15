@@ -189,12 +189,16 @@ class TestWebUIAndCLI(unittest.TestCase):
                     self.assertIn("Palettier Settings", body_html)
                     self.assertIn('id="t-gtk"', body_html)
                     self.assertIn('id="t-gtk_flatpak"', body_html)
+                    self.assertIn('id="wallpaper-candidates"', body_html)
 
                     status_st, body_st = self._request(f"{base}/api/state")
                     self.assertEqual(status_st, 200)
                     st_data = json.loads(body_st)
                     self.assertEqual(st_data["wallpaper_name"], "wall.png")
                     self.assertIn("scheme", st_data)
+                    self.assertIsInstance(st_data.get("wallpaper_candidates"), list)
+                    self.assertGreaterEqual(len(st_data["wallpaper_candidates"]), 1)
+                    self.assertEqual(st_data["wallpaper_candidates"][0], st_data["accent"])
 
                     status_prev, body_prev = self._request(f"{base}/preview")
                     self.assertEqual(status_prev, 200)
@@ -257,8 +261,30 @@ class TestWebUIAndCLI(unittest.TestCase):
                     cli_main(["--info", "--image", str(wp)])
                 txt = out.getvalue()
                 self.assertIn("Config file:", txt)
+                self.assertIn("Extracted colors:", txt)
                 self.assertIn("Enabled targets:     icons, gnome_accent, gtk, gtk_flatpak, ptyxis, firefox", txt)
                 self.assertIn("M3 icon mode:        places", txt)
+
+    def test_gtk_gui_labels_valid_pango_markup(self):
+        import ast
+        import xml.etree.ElementTree as ET
+
+        gui_path = Path(__file__).resolve().parent.parent / "palettier" / "gui.py"
+        tree = ast.parse(gui_path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                for kw in node.keywords:
+                    if kw.arg in ("title", "subtitle", "description") and isinstance(kw.value, ast.Constant):
+                        if isinstance(kw.value.value, str):
+                            ET.fromstring(f"<markup>{kw.value.value}</markup>")
+            if isinstance(node, ast.Assign):
+                for tgt in node.targets:
+                    if isinstance(tgt, ast.Name) and tgt.id == "target_labels" and isinstance(node.value, ast.List):
+                        for elt in node.value.elts:
+                            if isinstance(elt, ast.Tuple):
+                                for item in elt.elts[1:]:
+                                    if isinstance(item, ast.Constant) and isinstance(item.value, str):
+                                        ET.fromstring(f"<markup>{item.value}</markup>")
 
 
 if __name__ == "__main__":

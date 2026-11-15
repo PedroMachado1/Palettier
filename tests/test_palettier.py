@@ -30,7 +30,7 @@ from palettier.targets import (
     update_ptyxis_theme,
     update_starship_theme,
 )
-from palettier.wallpaper import extract_wallpaper_colors
+from palettier.wallpaper import extract_wallpaper_candidates, extract_wallpaper_colors
 
 
 class TestPalettierTargetsAndCLI(unittest.TestCase):
@@ -181,6 +181,56 @@ class TestPalettierTargetsAndCLI(unittest.TestCase):
             self.assertTrue(accent.startswith("#"))
             self.assertEqual(map_hex_to_gnome_accent(accent), "red")
             self.assertGreaterEqual(tint, 0.08)
+
+    def test_extract_wallpaper_candidates_multicolor_png_and_svg(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            # Multi-color PNG with 4 distinct vibrant quadrants
+            multi_png = root / "multi.png"
+            img = Image.new("RGB", (120, 120))
+            for y in range(120):
+                for x in range(120):
+                    if x < 60 and y < 60:
+                        img.putpixel((x, y), (45, 130, 225))
+                    elif x >= 60 and y < 60:
+                        img.putpixel((x, y), (46, 194, 126))
+                    elif x < 60 and y >= 60:
+                        img.putpixel((x, y), (224, 55, 65))
+                    else:
+                        img.putpixel((x, y), (235, 165, 45))
+            img.save(multi_png)
+
+            candidates, _tint, resolved = extract_wallpaper_candidates(multi_png, max_colors=5)
+            primary, _, _ = extract_wallpaper_colors(multi_png)
+            self.assertEqual(resolved, multi_png)
+            self.assertGreaterEqual(len(candidates), 3)
+            self.assertLessEqual(len(candidates), 5)
+            self.assertEqual(candidates[0], primary)
+            self.assertEqual(len(set(candidates)), len(candidates))
+
+            # Multi-color SVG
+            multi_svg = root / "multi.svg"
+            multi_svg.write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg">'
+                '<rect fill="#3584e4"/><rect fill="#2ec27e"/><rect fill="#e01b24"/><rect fill="#f5c211"/>'
+                "</svg>",
+                encoding="utf-8",
+            )
+            svg_candidates, _, svg_resolved = extract_wallpaper_candidates(multi_svg, max_colors=4)
+            self.assertEqual(svg_resolved, multi_svg)
+            self.assertGreaterEqual(len(svg_candidates), 3)
+            self.assertEqual(svg_candidates[0], extract_wallpaper_colors(multi_svg)[0])
+
+            # Monochrome fallback and missing file fallback
+            gray_png = root / "gray.png"
+            Image.new("RGB", (40, 40), (110, 110, 110)).save(gray_png)
+            gray_cands, _, _ = extract_wallpaper_candidates(gray_png)
+            self.assertEqual(gray_cands, ["#4a8fe7"])
+
+            missing_cands, _, missing_wp = extract_wallpaper_candidates(root / "missing.png")
+            self.assertEqual(missing_cands, ["#3584e4"])
+            self.assertIsNone(missing_wp)
 
     def test_service_install_and_uninstall_all(self):
         with tempfile.TemporaryDirectory() as tmp:

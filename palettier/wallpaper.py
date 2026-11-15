@@ -160,50 +160,95 @@ def get_current_wallpaper_path() -> Path | None:
     return None
 
 
-def extract_colors_from_svg(svg_path: Path) -> tuple[str, float]:
-    """Extract a primary accent color from a vector SVG wallpaper."""
+def _normalize_candidate_hex(r: int, g: int, b: int, h: float, l: float, s: float) -> str:
+    """Normalize lightness into a balanced accent range and return #rrggbb."""
+    if 0.44 <= l <= 0.62:
+        return f"#{r:02x}{g:02x}{b:02x}"
+    target_l = max(0.44, min(0.62, l))
+    nr, ng, nb = colorsys.hls_to_rgb(h, target_l, s)
+    return f"#{int(round(nr * 255)):02x}{int(round(ng * 255)):02x}{int(round(nb * 255)):02x}"
+
+
+def _color_distance_sq(hex1: str, hex2: str) -> int:
+    r1, g1, b1 = hex_to_rgb(hex1)
+    r2, g2, b2 = hex_to_rgb(hex2)
+    return (r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2
+
+
+def _select_distinct_candidates(scored: list[tuple[float, str, float]], max_colors: int) -> list[str]:
+    """Pick up to `max_colors` distinct colors in descending score order."""
+    if not scored:
+        return []
+    picked: list[str] = []
+    min_dist_sq = 42 * 42
+
+    for _score, hex_col, sat in scored:
+        if len(picked) >= max_colors:
+            break
+        if picked and sat < 0.12:
+            continue
+        if all(_color_distance_sq(hex_col, existing) >= min_dist_sq for existing in picked):
+            picked.append(hex_col)
+
+    if len(picked) < max_colors:
+        relaxed_dist_sq = 24 * 24
+        for _score, hex_col, _sat in scored:
+            if len(picked) >= max_colors:
+                break
+            if hex_col not in picked and all(
+                _color_distance_sq(hex_col, existing) >= relaxed_dist_sq for existing in picked
+            ):
+                picked.append(hex_col)
+
+    return picked
+
+
+def extract_colors_from_svg(svg_path: Path, max_colors: int = 1) -> tuple[list[str], float]:
+    """Extract primary and secondary accent candidates from a vector SVG wallpaper."""
     try:
         content = svg_path.read_text(encoding="utf-8", errors="ignore")
         hex_matches = re.findall(r"#(?:[0-9a-fA-F]{6})\b", content)
         if not hex_matches:
-            return "#3584e4", 0.10
+            return ["#3584e4"], 0.10
 
-        scored = []
+        scored: list[tuple[float, str, float]] = []
         for hex_code in set(hex_matches):
             r, g, b = hex_to_rgb(hex_code)
             _h, l, s = colorsys.rgb_to_hls(r / 255.0, g / 255.0, b / 255.0)
             if l < 0.12 or l > 0.90 or s < 0.15:
                 continue
             score = (s ** 1.3) * max(0.2, 1.0 - abs(l - 0.54) * 1.8)
-            scored.append((score, hex_code))
+            scored.append((score, hex_code.lower(), s))
 
         if scored:
             scored.sort(key=lambda x: x[0], reverse=True)
-            return scored[0][1].lower(), 0.10
-        return "#3584e4", 0.10
+            candidates = _select_distinct_candidates(scored, max(1, max_colors))
+            return candidates or [scored[0][1]], 0.10
+        return ["#3584e4"], 0.10
     except Exception:
-        return "#3584e4", 0.10
+        return ["#3584e4"], 0.10
 
 
-def extract_wallpaper_colors(
+def extract_wallpaper_candidates(
     wallpaper_path: Path | str | None = None,
     forced_tint: float | None = None,
-) -> tuple[str, float, Path | None]:
+    max_colors: int = 6,
+) -> tuple[list[str], float, Path | None]:
     """
-    Analyze the wallpaper image and extract a vibrant accent color and
-    recommended tint intensity for dark surfaces.
+    Analyze the wallpaper image and extract up to `max_colors` distinct accent color
+    candidates ordered by perceptual vibrancy and visual prominence.
     """
     wp = Path(wallpaper_path) if wallpaper_path else get_current_wallpaper_path()
 
     if not wp or not wp.exists():
         print("[!] No wallpaper found on the system. Using default accent (#3584e4).")
-        return "#3584e4", forced_tint if forced_tint is not None else 0.10, None
+        return ["#3584e4"], forced_tint if forced_tint is not None else 0.10, None
 
     if wp.suffix.lower() == ".svg":
-        accent, tint = extract_colors_from_svg(wp)
+        candidates, tint = extract_colors_from_svg(wp, max_colors=max_colors)
         if forced_tint is not None:
             tint = forced_tint
-        return accent, tint, wp
+        return candidates, tint, wp
 
     try:
         from PIL import Image
@@ -245,30 +290,42 @@ def extract_wallpaper_colors(
                 calculated_tint = forced_tint
 
             if not scored_candidates:
-                return "#3584e4", calculated_tint, wp
+                return ["#3584e4"], calculated_tint, wp
 
             scored_candidates.sort(key=lambda x: x[0], reverse=True)
             best = scored_candidates[0]
 
             if best[6] < 0.15:
-                return "#4a8fe7", calculated_tint, wp
+                return ["#4a8fe7"], calculated_tint, wp
 
-            best_r, best_g, best_b, best_h, best_l, best_s = best[1:]
-
-            target_l = max(0.44, min(0.62, best_l))
-            if target_l != best_l:
-                nr, ng, nb = colorsys.hls_to_rgb(best_h, target_l, best_s)
-                best_r = int(round(nr * 255))
-                best_g = int(round(ng * 255))
-                best_b = int(round(nb * 255))
-
-            hex_color = f"#{best_r:02x}{best_g:02x}{best_b:02x}"
-            return hex_color, calculated_tint, wp
+            normalized: list[tuple[float, str, float]] = [
+                (score, _normalize_candidate_hex(r, g, b, h, l, s), s)
+                for score, r, g, b, h, l, s in scored_candidates
+            ]
+            candidates = _select_distinct_candidates(normalized, max(1, max_colors))
+            return candidates or [normalized[0][1]], calculated_tint, wp
 
     except ImportError:
         print("[!] Pillow (PIL) library not found.")
         print("[!] Install image support via: pip install pillow (or python3-pil)")
-        return "#3584e4", forced_tint if forced_tint is not None else 0.10, wp
+        return ["#3584e4"], forced_tint if forced_tint is not None else 0.10, wp
     except Exception as e:
         print(f"[!] Error processing image {wp}: {e}")
-        return "#3584e4", forced_tint if forced_tint is not None else 0.10, wp
+        return ["#3584e4"], forced_tint if forced_tint is not None else 0.10, wp
+
+
+def extract_wallpaper_colors(
+    wallpaper_path: Path | str | None = None,
+    forced_tint: float | None = None,
+) -> tuple[str, float, Path | None]:
+    """
+    Analyze the wallpaper image and extract a vibrant accent color and
+    recommended tint intensity for dark surfaces.
+    """
+    candidates, tint, wp = extract_wallpaper_candidates(
+        wallpaper_path=wallpaper_path,
+        forced_tint=forced_tint,
+        max_colors=1,
+    )
+    return candidates[0], tint, wp
+

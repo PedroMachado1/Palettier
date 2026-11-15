@@ -18,7 +18,12 @@ from palettier.icons import render_html_preview
 from palettier.palette import build_m3_scheme
 from palettier.service import get_service_status, set_service_enabled, uninstall_all
 from palettier.sync import update_theme
-from palettier.wallpaper import extract_wallpaper_colors, get_current_wallpaper_path, gsettings_get
+from palettier.wallpaper import (
+    extract_wallpaper_candidates,
+    extract_wallpaper_colors,
+    get_current_wallpaper_path,
+    gsettings_get,
+)
 from palettier.web_ui import launch_web_ui
 
 _ICON_MODE_OPTIONS = ["system", "places", "squircle", "off"]
@@ -52,6 +57,8 @@ def launch_gtk_gui() -> int:
             self.set_default_size(640, 740)
             self._cfg = load_config()
             self._loading = True
+            self._wp_cache_key: tuple[str, int] | None = None
+            self._wp_candidates: list[str] = []
 
             self._toast_overlay = Adw.ToastOverlay()
             toolbar_view = Adw.ToolbarView()
@@ -93,6 +100,15 @@ def launch_gtk_gui() -> int:
             )
             self._auto_accent_row.connect("notify::active", self._on_setting_changed)
             color_group.add(self._auto_accent_row)
+
+            self._extracted_row = Adw.ActionRow(
+                title="Extracted Wallpaper Colors",
+                subtitle="Click a swatch to pick an accent color from the wallpaper",
+            )
+            self._candidates_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            self._candidates_box.set_valign(Gtk.Align.CENTER)
+            self._extracted_row.add_suffix(self._candidates_box)
+            color_group.add(self._extracted_row)
 
             self._custom_accent_row = Adw.ActionRow(
                 title="Custom Accent Color",
@@ -154,14 +170,17 @@ def launch_gtk_gui() -> int:
             target_labels = [
                 ("icons", "Material 3 Icon Theme", "GNOME Shell, Nautilus, and AppImage bridge"),
                 ("gnome_accent", "GNOME 47+ Native Accent", "Sync org.gnome.desktop.interface accent-color"),
-                ("gtk", "GTK 3 & 4 Apps", "Apply Material 3 accent and surface colors via gtk.css"),
+                ("gtk", "GTK 3 and 4 Apps", "Apply Material 3 accent and surface colors via gtk.css"),
                 ("gtk_flatpak", "GTK Flatpak Integration", "Grant read-only gtk-3.0/gtk-4.0 CSS access to Flatpak apps"),
                 ("ptyxis", "Ptyxis Terminal", "Update palettier.palette and active profiles"),
                 ("starship", "Starship Prompt", "Update ~/.config/starship.toml palette"),
                 ("firefox", "Firefox Browser", "Generate userChrome.css for all profiles"),
             ]
             for key, title, sub in target_labels:
-                row = Adw.SwitchRow(title=title, subtitle=sub)
+                row = Adw.SwitchRow(
+                    title=GLib.markup_escape_text(title, -1),
+                    subtitle=GLib.markup_escape_text(sub, -1),
+                )
                 row.connect("notify::active", self._on_setting_changed)
                 targets_group.add(row)
                 self._target_rows[key] = row
@@ -254,15 +273,25 @@ def launch_gtk_gui() -> int:
 
         def _refresh_palette_summary(self) -> None:
             wp = get_current_wallpaper_path()
-            if self._cfg.accent_override:
-                accent = self._cfg.accent_override
+            cache_key = (str(wp), wp.stat().st_mtime_ns) if wp and wp.exists() else None
+            if cache_key != self._wp_cache_key or not self._wp_candidates:
+                candidates, _, wp = extract_wallpaper_candidates(
+                    wp,
+                    forced_tint=self._cfg.surface_tint,
+                    max_colors=6,
+                )
+                self._wp_candidates = candidates
+                self._wp_cache_key = cache_key
             else:
-                accent, _, wp = extract_wallpaper_colors(wp, forced_tint=self._cfg.surface_tint)
+                candidates = self._wp_candidates
+
+            accent = self._cfg.accent_override or candidates[0]
             cs = gsettings_get("org.gnome.desktop.interface", "color-scheme")
             is_dark = "dark" in (cs or "prefer-dark").lower()
             scheme = build_m3_scheme(accent, is_dark=is_dark)
 
-            self._wp_row.set_title(wp.name if wp else "No wallpaper detected")
+            wp_title = wp.name if wp else "No wallpaper detected"
+            self._wp_row.set_title(GLib.markup_escape_text(wp_title, -1))
             self._wp_row.set_subtitle(f"Seed: {accent} · Mode: {scheme['mode']} · Primary: {scheme['primary']}")
 
             while (child := self._swatch_box.get_first_child()) is not None:
@@ -283,6 +312,52 @@ def launch_gtk_gui() -> int:
                 swatch.set_draw_func(_draw)
                 swatch.set_tooltip_text(f"{token}: {color_hex}")
                 self._swatch_box.append(swatch)
+
+            while (child := self._candidates_box.get_first_child()) is not None:
+                self._candidates_box.remove(child)
+            active_hex = accent.lower()
+            ring_hex = "#ffffff" if is_dark else "#1f1f1f"
+            for hex_col in candidates:
+                is_selected = hex_col.lower() == active_hex
+                btn = Gtk.Button()
+                btn.add_css_class("flat")
+                btn.add_css_class("circular")
+                btn.set_valign(Gtk.Align.CENTER)
+                btn.set_tooltip_text(f"Use {hex_col}" + (" (active)" if is_selected else ""))
+
+                dot = Gtk.DrawingArea()
+                dot.set_content_width(24)
+                dot.set_content_height(24)
+
+                def _draw_cand(area, cr, w, h, col=hex_col, selected=is_selected, rcol=ring_hex):
+                    c = Gdk.RGBA()
+                    c.parse(col)
+                    cx, cy = w / 2.0, h / 2.0
+                    radius = min(w, h) / 2.0 - 3.5
+                    cr.arc(cx, cy, radius, 0, 6.283185)
+                    cr.set_source_rgba(c.red, c.green, c.blue, c.alpha)
+                    cr.fill()
+                    if selected:
+                        rc = Gdk.RGBA()
+                        rc.parse(rcol)
+                        cr.arc(cx, cy, radius + 2.0, 0, 6.283185)
+                        cr.set_source_rgba(rc.red, rc.green, rc.blue, 0.9)
+                        cr.set_line_width(2.0)
+                        cr.stroke()
+
+                dot.set_draw_func(_draw_cand)
+                btn.set_child(dot)
+                btn.connect("clicked", lambda _b, c=hex_col: self._on_candidate_clicked(c))
+                self._candidates_box.append(btn)
+
+        def _on_candidate_clicked(self, hex_col: str) -> None:
+            self._loading = True
+            self._auto_accent_row.set_active(False)
+            rgba = Gdk.RGBA()
+            rgba.parse(hex_col)
+            self._color_btn.set_rgba(rgba)
+            self._loading = False
+            self._on_setting_changed()
 
         def _on_color_picked(self, *_args) -> None:
             if self._loading:

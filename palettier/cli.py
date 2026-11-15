@@ -15,7 +15,12 @@ from palettier.icons import get_default_icon_mode, get_icon_tint_strength, rende
 from palettier.palette import build_m3_scheme, map_hex_to_gnome_accent
 from palettier.service import install_user_service, uninstall_all, uninstall_user_service
 from palettier.sync import update_theme
-from palettier.wallpaper import extract_wallpaper_colors, get_current_wallpaper_path, gsettings_get
+from palettier.wallpaper import (
+    extract_wallpaper_candidates,
+    extract_wallpaper_colors,
+    get_current_wallpaper_path,
+    gsettings_get,
+)
 from palettier.watch import watch_mode
 
 
@@ -173,12 +178,17 @@ def main(argv: list[str] | None = None) -> None:
         print(f"[✓] Material Design 3 preview saved to: {out_path}")
     elif args.info:
         wp = Path(args.image) if args.image else get_current_wallpaper_path()
+        candidates, extracted_tint, active_wp = extract_wallpaper_candidates(
+            wp,
+            forced_tint=effective_tint_arg,
+            max_colors=6,
+        )
         if effective_accent_arg:
             accent = effective_accent_arg
-            tint = effective_tint_arg if effective_tint_arg is not None else 0.10
-            active_wp = wp
+            tint = effective_tint_arg if effective_tint_arg is not None else extracted_tint
         else:
-            accent, tint, active_wp = extract_wallpaper_colors(wp, forced_tint=effective_tint_arg)
+            accent = candidates[0]
+            tint = extracted_tint
         gnome_acc = map_hex_to_gnome_accent(accent)
         color_scheme = gsettings_get("org.gnome.desktop.interface", "color-scheme")
         is_dark = "dark" in (color_scheme or "prefer-dark").lower()
@@ -188,6 +198,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Config file:         {get_config_path()}")
         print(f"Enabled targets:     {', '.join(enabled_targets) if enabled_targets else 'none'}")
         print(f"Detected wallpaper:  {active_wp}")
+        print(f"Extracted colors:    {', '.join(candidates)}")
         print(f"Accent color:        {accent}")
         print(f"GNOME 47+ accent:    {gnome_acc}")
         print(f"Tint intensity:      {tint * 100:.1f}%")

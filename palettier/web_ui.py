@@ -30,18 +30,28 @@ from palettier.icons import VALID_ICON_MODES, render_html_preview
 from palettier.palette import build_m3_scheme
 from palettier.service import get_service_status, set_service_enabled, uninstall_all
 from palettier.sync import update_theme
-from palettier.wallpaper import extract_wallpaper_colors, get_current_wallpaper_path, gsettings_get
+from palettier.wallpaper import (
+    extract_wallpaper_candidates,
+    get_current_wallpaper_path,
+    gsettings_get,
+)
 
 
 def build_state_payload(config_path: Path | None = None) -> dict[str, Any]:
     """Collect current config, wallpaper info, M3 scheme, and service status."""
     cfg = load_config(config_path=config_path)
     wp = get_current_wallpaper_path()
+    candidates, extracted_tint, wp = extract_wallpaper_candidates(
+        wp,
+        forced_tint=cfg.surface_tint,
+        max_colors=6,
+    )
     if cfg.accent_override:
         accent = cfg.accent_override
-        tint = cfg.surface_tint if cfg.surface_tint is not None else 0.10
+        tint = cfg.surface_tint if cfg.surface_tint is not None else extracted_tint
     else:
-        accent, tint, wp = extract_wallpaper_colors(wp, forced_tint=cfg.surface_tint)
+        accent = candidates[0]
+        tint = extracted_tint
 
     color_scheme = gsettings_get("org.gnome.desktop.interface", "color-scheme")
     is_dark = "dark" in (color_scheme or "prefer-dark").lower()
@@ -53,6 +63,7 @@ def build_state_payload(config_path: Path | None = None) -> dict[str, Any]:
         "config": cfg.to_dict(),
         "wallpaper": str(wp) if wp else None,
         "wallpaper_name": wp.name if wp else "None detected",
+        "wallpaper_candidates": candidates,
         "accent": accent,
         "surface_tint": tint,
         "scheme": scheme,
@@ -139,6 +150,19 @@ def render_web_ui_html(state: dict[str, Any]) -> str:
     width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
     border: 1px solid var(--border);
   }}
+  .candidate-list {{
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end;
+  }}
+  .candidate-swatch {{
+    width: 28px; height: 28px; padding: 0; border-radius: 50%;
+    border: 2px solid var(--border);
+    cursor: pointer; transition: transform 0.12s ease, border-color 0.12s ease;
+  }}
+  .candidate-swatch:hover {{ transform: scale(1.1); }}
+  .candidate-swatch.active {{
+    border-color: var(--text);
+    box-shadow: 0 0 0 2px var(--primary);
+  }}
   .row {{
     display: flex; justify-content: space-between; align-items: center;
     gap: 16px; padding: 12px 0;
@@ -211,6 +235,13 @@ def render_web_ui_html(state: dict[str, Any]) -> str:
         <span>Disable to pick a fixed custom #HEX accent color</span>
       </div>
       <input type="checkbox" id="auto-accent">
+    </div>
+    <div class="row">
+      <div class="row-label">
+        <strong>Extracted Wallpaper Colors</strong>
+        <span>Click a swatch to pick a manual accent color from the wallpaper</span>
+      </div>
+      <div class="candidate-list" id="wallpaper-candidates"></div>
     </div>
     <div class="row" id="custom-accent-row">
       <div class="row-label">
@@ -319,7 +350,16 @@ function showToast(msg) {{
   window._toastTimer = setTimeout(() => {{ el.style.display = 'none'; }}, 3200);
 }}
 
+function updateCandidateHighlight(activeHex) {{
+  const norm = (activeHex || '').trim().toLowerCase();
+  for (const btn of document.querySelectorAll('#wallpaper-candidates .candidate-swatch')) {{
+    const col = (btn.dataset.color || '').toLowerCase();
+    btn.classList.toggle('active', col === norm);
+  }}
+}}
+
 function renderState(st) {{
+  window._currentState = st;
   const cfg = st.config;
   const swEl = document.getElementById('swatches');
   const keys = ['primary', 'primaryContainer', 'secondary', 'tertiary', 'surfaceContainerHigh', 'onSurface'];
@@ -337,6 +377,15 @@ function renderState(st) {{
   const curColor = cfg.accent_override || st.accent || '#3584e4';
   document.getElementById('accent-picker').value = curColor;
   document.getElementById('accent-hex').value = curColor;
+
+  const candEl = document.getElementById('wallpaper-candidates');
+  const candidates = Array.isArray(st.wallpaper_candidates) && st.wallpaper_candidates.length
+    ? st.wallpaper_candidates
+    : [st.accent || '#3584e4'];
+  candEl.innerHTML = candidates.map(col => `
+    <button type="button" class="candidate-swatch" data-color="${{col}}" title="Use ${{col}}" style="background:${{col}}" aria-label="Select accent ${{col}}"></button>
+  `).join('');
+  updateCandidateHighlight(curColor);
 
   const autoSurf = cfg.surface_tint === null || cfg.surface_tint === undefined;
   document.getElementById('auto-surface-tint').checked = autoSurf;
@@ -397,13 +446,40 @@ document.getElementById('t-gtk').addEventListener('change', e => {{
   document.getElementById('gtk-flatpak-row').style.opacity = e.target.checked ? '1' : '0.5';
 }});
 
+document.getElementById('wallpaper-candidates').addEventListener('click', e => {{
+  const btn = e.target.closest('.candidate-swatch');
+  if (!btn) return;
+  const col = btn.dataset.color;
+  document.getElementById('accent-picker').value = col;
+  document.getElementById('accent-hex').value = col;
+  document.getElementById('auto-accent').checked = false;
+  document.getElementById('custom-accent-row').style.opacity = '1';
+  updateCandidateHighlight(col);
+}});
+
 document.getElementById('accent-picker').addEventListener('input', e => {{
   document.getElementById('accent-hex').value = e.target.value;
   document.getElementById('auto-accent').checked = false;
   document.getElementById('custom-accent-row').style.opacity = '1';
+  updateCandidateHighlight(e.target.value);
+}});
+document.getElementById('accent-hex').addEventListener('input', e => {{
+  const val = e.target.value.trim();
+  if (/^#[0-9a-fA-F]{{6}}$/.test(val)) {{
+    document.getElementById('accent-picker').value = val;
+    document.getElementById('auto-accent').checked = false;
+    document.getElementById('custom-accent-row').style.opacity = '1';
+    updateCandidateHighlight(val);
+  }}
 }});
 document.getElementById('auto-accent').addEventListener('change', e => {{
   document.getElementById('custom-accent-row').style.opacity = e.target.checked ? '0.5' : '1';
+  if (e.target.checked && window._currentState) {{
+    const autoCol = (window._currentState.wallpaper_candidates || [])[0] || window._currentState.accent;
+    updateCandidateHighlight(autoCol);
+  }} else {{
+    updateCandidateHighlight(document.getElementById('accent-hex').value);
+  }}
 }});
 document.getElementById('auto-surface-tint').addEventListener('change', e => {{
   const el = document.getElementById('surface-tint');
