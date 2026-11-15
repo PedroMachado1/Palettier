@@ -14,12 +14,19 @@ from PIL import Image
 
 from palettier import __version__
 from palettier.cli import main
-from palettier.palette import map_hex_to_gnome_accent
+from palettier.palette import contrast_ratio, map_hex_to_gnome_accent
 from palettier.service import SERVICE_NAME, install_user_service, uninstall_all
 from palettier.state import get_state_file_path, load_saved_state, save_state
 from palettier.targets import (
+    compute_gtk_palette_tokens,
     generate_firefox_userchrome_css,
+    generate_gtk3_css,
+    generate_gtk4_css,
+    remove_gtk_theme,
+    revert_flatpak_gtk_overrides,
+    sync_flatpak_gtk_overrides,
     update_firefox_theme,
+    update_gtk_theme,
     update_ptyxis_theme,
     update_starship_theme,
 )
@@ -65,6 +72,98 @@ class TestPalettierTargetsAndCLI(unittest.TestCase):
             )
             self.assertIn("Palettier", generate_firefox_userchrome_css("#3584e4", 0.10))
 
+    def test_gtk_themes_contrast_and_user_css_preservation(self):
+        for seed in ("#3584e4", "#e01b24", "#2ec27e", "#f6d32d"):
+            for is_dark in (True, False):
+                tokens = compute_gtk_palette_tokens(seed, 0.15, is_dark=is_dark)
+                self.assertGreaterEqual(contrast_ratio(tokens["accent_bg_color"], tokens["accent_fg_color"]), 4.5)
+                self.assertGreaterEqual(contrast_ratio(tokens["window_bg_color"], tokens["window_fg_color"]), 7.0)
+
+        t_zero = compute_gtk_palette_tokens("#e01b24", 0.0, is_dark=True)
+        t_high = compute_gtk_palette_tokens("#e01b24", 0.25, is_dark=True)
+        self.assertNotEqual(t_zero["window_bg_color"], t_high["window_bg_color"])
+
+        css4 = generate_gtk4_css("#3584e4", 0.12, is_dark=True)
+        self.assertIn("@define-color accent_bg_color", css4)
+        self.assertIn("--accent-bg-color:", css4)
+        self.assertIn("--window-bg-color:", css4)
+
+        css3 = generate_gtk3_css("#3584e4", 0.12, is_dark=False)
+        self.assertIn("@define-color theme_selected_bg_color", css3)
+        self.assertNotIn(":root {", css3)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gtk4 = root / "gtk-4.0"
+            gtk3 = root / "gtk-3.0"
+            gtk4.mkdir(parents=True)
+            user_rule = "window { border-radius: 12px; }\n"
+            (gtk4 / "gtk.css").write_text(user_rule, encoding="utf-8")
+
+            self.assertTrue(update_gtk_theme("#3584e4", 0.12, is_dark=True, gtk4_dir=gtk4, gtk3_dir=gtk3))
+            self.assertTrue((gtk4 / "palettier.css").is_file())
+            self.assertTrue((gtk3 / "palettier.css").is_file())
+            gtk4_css_txt = (gtk4 / "gtk.css").read_text(encoding="utf-8")
+            self.assertTrue(gtk4_css_txt.startswith("/* BEGIN PALETTIER"))
+            self.assertIn('@import url("palettier.css");', gtk4_css_txt)
+            self.assertIn(user_rule.strip(), gtk4_css_txt)
+
+            # Second update remains idempotent without duplicating markers or user rules
+            self.assertTrue(update_gtk_theme("#e01b24", 0.15, is_dark=False, gtk4_dir=gtk4, gtk3_dir=gtk3))
+            gtk4_css_txt2 = (gtk4 / "gtk.css").read_text(encoding="utf-8")
+            self.assertEqual(gtk4_css_txt2.count("BEGIN PALETTIER"), 1)
+            self.assertEqual(gtk4_css_txt2.count("border-radius: 12px;"), 1)
+
+            # Cleanup removes palettier.css, deletes empty gtk-3.0/gtk.css, preserves user CSS in gtk-4.0/gtk.css
+            remove_gtk_theme(gtk4_dir=gtk4, gtk3_dir=gtk3, revert_flatpak=False)
+            self.assertFalse((gtk4 / "palettier.css").exists())
+            self.assertFalse((gtk3 / "palettier.css").exists())
+            self.assertFalse((gtk3 / "gtk.css").exists())
+            self.assertEqual((gtk4 / "gtk.css").read_text(encoding="utf-8"), user_rule)
+
+    def test_flatpak_gtk_override_sync_and_revert(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            marker = root / "state" / "flatpak-gtk-overrides.json"
+            global_ov = root / "data" / "flatpak" / "overrides" / "global"
+            global_ov.parent.mkdir(parents=True)
+            global_ov.write_text("[Context]\nfilesystems=xdg-documents;\n", encoding="utf-8")
+
+            calls: list[list[str]] = []
+
+            def fake_run(cmd, **_kwargs):
+                calls.append(cmd)
+                res = mock.Mock()
+                res.returncode = 0
+                if "--show" in cmd:
+                    res.stdout = "[Context]\nfilesystems=xdg-documents;\n"
+                else:
+                    res.stdout = ""
+                return res
+
+            with mock.patch("palettier.targets.shutil.which", return_value="/usr/bin/flatpak"), \
+                 mock.patch("palettier.targets.subprocess.run", side_effect=fake_run):
+                self.assertTrue(sync_flatpak_gtk_overrides(marker_path=marker))
+
+            self.assertTrue(marker.is_file())
+            marker_data = marker.read_text(encoding="utf-8")
+            self.assertIn("xdg-config/gtk-4.0:ro", marker_data)
+            self.assertIn("xdg-config/gtk-3.0:ro", marker_data)
+            self.assertTrue(any("--filesystem=xdg-config/gtk-4.0:ro" in c for c in calls))
+            self.assertTrue(any("--filesystem=xdg-config/gtk-3.0:ro" in c for c in calls))
+
+            # Simulate Flatpak having updated the global override file and revert cleanly
+            global_ov.write_text(
+                "[Context]\nfilesystems=xdg-documents;xdg-config/gtk-4.0:ro;xdg-config/gtk-3.0:ro;\n",
+                encoding="utf-8",
+            )
+            self.assertTrue(revert_flatpak_gtk_overrides(marker_path=marker, global_override_path=global_ov))
+            self.assertFalse(marker.exists())
+            ov_txt = global_ov.read_text(encoding="utf-8")
+            self.assertIn("xdg-documents", ov_txt)
+            self.assertNotIn("gtk-4.0", ov_txt)
+            self.assertNotIn("gtk-3.0", ov_txt)
+
     def test_state_file_roundtrip_and_wallpaper_extraction(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -92,12 +191,15 @@ class TestPalettierTargetsAndCLI(unittest.TestCase):
             pal_dir = root / "palettes"
             ff_profile = root / "ff"
             ff_profile.mkdir()
+            gtk4_dir = root / "gtk-4.0"
+            gtk3_dir = root / "gtk-3.0"
             state_file = root / "palettier.state"
             state_file.write_text("{}", encoding="utf-8")
 
             update_starship_theme("#3584e4", 0.10, starship_toml=starship)
             update_ptyxis_theme("#3584e4", 0.10, palettes_dir=pal_dir)
             update_firefox_theme("#3584e4", 0.10, profile_dirs=[ff_profile], reference_path=root / "ref.css")
+            update_gtk_theme("#3584e4", 0.10, is_dark=True, gtk4_dir=gtk4_dir, gtk3_dir=gtk3_dir)
 
             with mock.patch("builtins.print"):
                 svc_file = install_user_service(service_dir=svc_dir)
@@ -117,11 +219,15 @@ class TestPalettierTargetsAndCLI(unittest.TestCase):
                     palettes_dir=pal_dir,
                     firefox_profiles=[ff_profile],
                     state_file=state_file,
+                    gtk4_dir=gtk4_dir,
+                    gtk3_dir=gtk3_dir,
                 )
 
             self.assertFalse(svc_file.exists())
             self.assertFalse((pal_dir / "palettier.palette").exists())
             self.assertFalse((ff_profile / "chrome" / "userChrome.css").exists())
+            self.assertFalse((gtk4_dir / "palettier.css").exists())
+            self.assertFalse((gtk3_dir / "palettier.css").exists())
             self.assertFalse(state_file.exists())
             self.assertNotIn("palettier", starship.read_text(encoding="utf-8"))
 

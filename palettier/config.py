@@ -15,7 +15,7 @@ from typing import Any
 
 from palettier.icons import DEFAULT_ICON_TINT_STRENGTH, VALID_ICON_MODES
 
-TARGET_KEYS = ("icons", "gnome_accent", "ptyxis", "starship", "firefox")
+TARGET_KEYS = ("icons", "gnome_accent", "gtk", "gtk_flatpak", "ptyxis", "starship", "firefox")
 _HEX_RE = re.compile(r"^#?(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
 

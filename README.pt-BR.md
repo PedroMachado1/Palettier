@@ -47,7 +47,8 @@ flowchart TD
     E3 -->|2. palettier.palette| F2[Terminal Ptyxis]
     E3 -->|3. userChrome.css + user.js| F3[Firefox]
     E3 -->|4. accent-color| F4[GNOME 47+ Accent]
-    E3 -->|5. palettier.icons| F5[Slots de Ícones M3 A/B]
+    E3 -->|5. palettier.css + flatpak| F5[Apps GTK 3 & 4 / Flatpak]
+    E3 -->|6. palettier.icons| F6[Slots de Ícones M3 A/B]
 ```
 
 </details>
@@ -61,6 +62,7 @@ flowchart TD
 | **Ícones Material Design 3** | Gera SVGs M3 para `places/` e `mimetypes/` e aplica um filtro tonal LUT em `.svg`, `.svgz`, `.png`, `.webp`, `.jpg` e `.ico` de todos os aplicativos instalados (sistema, Flatpak, Snap e AppImage) preservando silhueta e transparência. |
 | **Hot-reload atômico** | Alterna entre `Palettier-M3-A` e `Palettier-M3-B` via `gsettings`, fazendo o GNOME Shell e o Nautilus atualizarem os ícones na hora ao trocar o wallpaper ou o modo claro/escuro. |
 | **Accent do GNOME 47+** | Mapeia a cor extraída do papel de parede diretamente para a chave nativa `org.gnome.desktop.interface accent-color`. |
+| **Apps GTK 3 & 4 + Flatpak** | Gera `palettier.css` com cor de destaque e superfícies M3 tingidas em `~/.config/gtk-4.0/` (Libadwaita 1.0–1.6+) e `~/.config/gtk-3.0/` (`adw-gtk3` e temas clássicos) via `@import` não-destrutivo, com permissão opcional somente leitura para Flatpaks (janelas GTK já abertas aplicam as novas cores ao serem reabertas). |
 | **Terminal Ptyxis** | Gera `palettier.palette` (incluindo caminhos Flatpak quando presentes) e atualiza automaticamente o perfil ativo do Ptyxis. |
 | **Prompt Starship** | Atualiza `[palettes.palettier]` e define `palette = 'palettier'` em `~/.config/starship.toml`. |
 | **Navegador Firefox** | Gera `chrome/userChrome.css` e ativa suporte a folhas de estilo em `user.js` em todos os perfis ativos, com suporte a abas horizontais e verticais. |
@@ -99,7 +101,7 @@ palettier --web-ui   # Abre diretamente a interface Web local Material 3
 |---|---|
 | <img src="docs/assets/images/settings-gui-palette.png" alt="Palettier Settings exibindo a paleta Material Design 3 ativa, opções de cor e intensidade do filtro dos ícones"> | <img src="docs/assets/images/settings-gui-integrations.png" alt="Palettier Settings exibindo as chaves de integração do desktop, serviço em segundo plano, reset e desinstalação"> |
 
-Pela interface você pode visualizar os tokens M3 ativos, definir uma cor de destaque personalizada, ajustar a intensidade do *surface tint* e do filtro tonal dos ícones (`0.0` a `1.0`), alternar o modo dos ícones (`system`, `places`, `squircle`, `off`), ativar/desativar alvos individuais (**Ícones**, **GNOME Accent**, **Ptyxis**, **Starship**, **Firefox**) e controlar o `palettier.service`.
+Pela interface você pode visualizar os tokens M3 ativos, definir uma cor de destaque personalizada, ajustar a intensidade do *surface tint* e do filtro tonal dos ícones (`0.0` a `1.0`), alternar o modo dos ícones (`system`, `places`, `squircle`, `off`), ativar/desativar alvos individuais (**Ícones**, **GNOME Accent**, **Apps GTK 3 & 4**, **Integração GTK Flatpak**, **Ptyxis**, **Starship**, **Firefox**) e controlar o `palettier.service`.
 
 Suas preferências ficam salvas em `~/.config/palettier/config.json` e são compartilhadas entre interface gráfica, CLI, `--watch` e serviço `systemd`:
 
@@ -112,6 +114,8 @@ Suas preferências ficam salvas em `~/.config/palettier/config.json` e são comp
   "targets": {
     "icons": true,
     "gnome_accent": true,
+    "gtk": true,
+    "gtk_flatpak": true,
     "ptyxis": true,
     "starship": true,
     "firefox": true

@@ -154,6 +154,8 @@ def launch_gtk_gui() -> int:
             target_labels = [
                 ("icons", "Material 3 Icon Theme", "GNOME Shell, Nautilus, and AppImage bridge"),
                 ("gnome_accent", "GNOME 47+ Native Accent", "Sync org.gnome.desktop.interface accent-color"),
+                ("gtk", "GTK 3 & 4 Apps", "Apply Material 3 accent and surface colors via gtk.css"),
+                ("gtk_flatpak", "GTK Flatpak Integration", "Grant read-only gtk-3.0/gtk-4.0 CSS access to Flatpak apps"),
                 ("ptyxis", "Ptyxis Terminal", "Update palettier.palette and active profiles"),
                 ("starship", "Starship Prompt", "Update ~/.config/starship.toml palette"),
                 ("firefox", "Firefox Browser", "Generate userChrome.css for all profiles"),
@@ -223,6 +225,8 @@ def launch_gtk_gui() -> int:
 
             for key, row in self._target_rows.items():
                 row.set_active(bool(cfg.targets.get(key, True)))
+            if "gtk_flatpak" in self._target_rows and "gtk" in self._target_rows:
+                self._target_rows["gtk_flatpak"].set_sensitive(self._target_rows["gtk"].get_active())
 
             svc = get_service_status()
             self._service_row.set_active(bool(svc["enabled"]))
@@ -290,6 +294,8 @@ def launch_gtk_gui() -> int:
                 return
             self._custom_accent_row.set_sensitive(not self._auto_accent_row.get_active())
             self._surface_row.set_sensitive(not self._auto_surface_row.get_active())
+            if "gtk_flatpak" in self._target_rows and "gtk" in self._target_rows:
+                self._target_rows["gtk_flatpak"].set_sensitive(self._target_rows["gtk"].get_active())
             self._cfg = self._collect_config_from_widgets()
             save_config(self._cfg)
             self._refresh_palette_summary()

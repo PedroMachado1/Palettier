@@ -268,6 +268,14 @@ def render_web_ui_html(state: dict[str, Any]) -> str:
       <input type="checkbox" id="t-gnome_accent">
     </div>
     <div class="row">
+      <div class="row-label"><strong>GTK 3 &amp; 4 Apps</strong><span>Material 3 accent &amp; surface colors via gtk.css</span></div>
+      <input type="checkbox" id="t-gtk">
+    </div>
+    <div class="row" id="gtk-flatpak-row">
+      <div class="row-label"><strong>GTK Flatpak Integration</strong><span>Read-only gtk-3.0/gtk-4.0 CSS access for Flatpak apps</span></div>
+      <input type="checkbox" id="t-gtk_flatpak">
+    </div>
+    <div class="row">
       <div class="row-label"><strong>Ptyxis Terminal</strong><span>Dynamic palettier.palette theme</span></div>
       <input type="checkbox" id="t-ptyxis">
     </div>
@@ -341,9 +349,12 @@ function renderState(st) {{
   document.getElementById('icon-tint').value = cfg.icon_tint;
   document.getElementById('icon-tint-val').textContent = Math.round(cfg.icon_tint * 100) + '%';
 
-  for (const k of ['icons', 'gnome_accent', 'ptyxis', 'starship', 'firefox']) {{
+  for (const k of ['icons', 'gnome_accent', 'gtk', 'gtk_flatpak', 'ptyxis', 'starship', 'firefox']) {{
     document.getElementById('t-' + k).checked = !!cfg.targets[k];
   }}
+  const gtkOn = !!cfg.targets.gtk;
+  document.getElementById('t-gtk_flatpak').disabled = !gtkOn;
+  document.getElementById('gtk-flatpak-row').style.opacity = gtkOn ? '1' : '0.5';
 
   const svc = st.service || {{}};
   document.getElementById('service-enabled').checked = !!svc.enabled;
@@ -363,6 +374,8 @@ function collectConfig() {{
     targets: {{
       icons: document.getElementById('t-icons').checked,
       gnome_accent: document.getElementById('t-gnome_accent').checked,
+      gtk: document.getElementById('t-gtk').checked,
+      gtk_flatpak: document.getElementById('t-gtk_flatpak').checked,
       ptyxis: document.getElementById('t-ptyxis').checked,
       starship: document.getElementById('t-starship').checked,
       firefox: document.getElementById('t-firefox').checked,
@@ -378,6 +391,11 @@ async function postJson(url, body) {{
   }});
   return await res.json();
 }}
+
+document.getElementById('t-gtk').addEventListener('change', e => {{
+  document.getElementById('t-gtk_flatpak').disabled = !e.target.checked;
+  document.getElementById('gtk-flatpak-row').style.opacity = e.target.checked ? '1' : '0.5';
+}});
 
 document.getElementById('accent-picker').addEventListener('input', e => {{
   document.getElementById('accent-hex').value = e.target.value;

@@ -47,7 +47,8 @@ flowchart TD
     E3 -->|2. palettier.palette| F2[Ptyxis Terminal]
     E3 -->|3. userChrome.css + user.js| F3[Firefox]
     E3 -->|4. accent-color| F4[GNOME 47+ Accent]
-    E3 -->|5. palettier.icons| F5[M3 Icon Slots A/B]
+    E3 -->|5. palettier.css + flatpak| F5[GTK 3 & 4 / Flatpak]
+    E3 -->|6. palettier.icons| F6[M3 Icon Slots A/B]
 ```
 
 </details>
@@ -61,6 +62,7 @@ flowchart TD
 | **Material Design 3 icons** | Generates M3 `places/` and `mimetypes/` SVGs and applies a shape-preserving tonal LUT across `.svg`, `.svgz`, `.png`, `.webp`, `.jpg`, and `.ico` icons for all installed apps (system, Flatpak, Snap, and AppImage) without changing silhouettes or transparency. |
 | **Atomic hot-reload** | Alternates between `Palettier-M3-A` and `Palettier-M3-B` via `gsettings`, forcing GNOME Shell and Nautilus to refresh icons immediately on wallpaper or dark/light scheme switches. |
 | **GNOME 47+ accent** | Maps the extracted wallpaper color directly to native `org.gnome.desktop.interface accent-color`. |
+| **GTK 3 & 4 + Flatpak apps** | Generates `palettier.css` with M3 accent and tinted surface tokens in `~/.config/gtk-4.0/` (Libadwaita 1.0–1.6+) and `~/.config/gtk-3.0/` (`adw-gtk3` and classic themes) via non-destructive `@import` blocks, and optionally grants Flatpak read-only access (already-open GTK windows apply updates when reopened). |
 | **Ptyxis terminal** | Writes `palettier.palette` (including Flatpak paths when detected) and updates your active Ptyxis profile. |
 | **Starship prompt** | Updates `[palettes.palettier]` and sets `palette = 'palettier'` inside `~/.config/starship.toml`. |
 | **Firefox browser** | Generates `chrome/userChrome.css` and enables stylesheet support in `user.js` across active profiles, supporting horizontal and vertical tabs. |
@@ -99,7 +101,7 @@ palettier --web-ui   # Force the local HTTP Material 3 Web Settings UI
 |---|---|
 | <img src="docs/assets/images/settings-gui-palette.png" alt="Palettier Settings showing active Material Design 3 palette swatches, accent options, and icon filter strength"> | <img src="docs/assets/images/settings-gui-integrations.png" alt="Palettier Settings showing desktop integration switches, background daemon toggle, reset, and uninstall"> |
 
-From the interface you can preview active M3 tokens, pick a custom accent override, adjust surface tint and app icon tint strength (`0.0` to `1.0`), switch icon modes (`system`, `places`, `squircle`, `off`), toggle individual targets (**Icons**, **GNOME Accent**, **Ptyxis**, **Starship**, **Firefox**), and start or stop `palettier.service`.
+From the interface you can preview active M3 tokens, pick a custom accent override, adjust surface tint and app icon tint strength (`0.0` to `1.0`), switch icon modes (`system`, `places`, `squircle`, `off`), toggle individual targets (**Icons**, **GNOME Accent**, **GTK 3 & 4 Apps**, **GTK Flatpak Integration**, **Ptyxis**, **Starship**, **Firefox**), and start or stop `palettier.service`.
 
 Preferences are persisted in `~/.config/palettier/config.json` and shared across the UI, CLI, `--watch`, and the systemd service:
 
@@ -112,6 +114,8 @@ Preferences are persisted in `~/.config/palettier/config.json` and shared across
   "targets": {
     "icons": true,
     "gnome_accent": true,
+    "gtk": true,
+    "gtk_flatpak": true,
     "ptyxis": true,
     "starship": true,
     "firefox": true

@@ -18,6 +18,7 @@ from palettier.targets import (
     get_firefox_profile_dirs,
     get_firefox_reference_path,
     get_ptyxis_palette_paths,
+    remove_gtk_theme,
 )
 from palettier.wallpaper import gsettings_get, gsettings_set
 
@@ -153,6 +154,8 @@ def uninstall_all(
     palettes_dir: Path | None = None,
     firefox_profiles: list[Path] | None = None,
     state_file: Path | None = None,
+    gtk4_dir: Path | None = None,
+    gtk3_dir: Path | None = None,
 ) -> None:
     """
     Completely uninstall Palettier:
@@ -160,13 +163,14 @@ def uninstall_all(
     2. Remove generated Ptyxis palettes and restore profiles to 'gnome'.
     3. Remove Palettier palette sections from starship.toml.
     4. Remove dynamic userChrome.css from Firefox profiles and XDG state reference.
-    5. Remove Material Design 3 icon slots and restore the previous icon theme.
+    5. Remove GTK 3/4 CSS themes and Flatpak overrides managed by Palettier.
+    6. Remove Material Design 3 icon slots and restore the previous icon theme.
     """
     print("==================================================")
     print("       Palettier — Complete Uninstallation        ")
     print("==================================================")
 
-    print("\n[1/5] Stopping and removing systemd service...")
+    print("\n[1/6] Stopping and removing systemd service...")
     uninstall_user_service(service_dir=service_dir)
 
     try:
@@ -183,7 +187,7 @@ def uninstall_all(
     except Exception:
         pass
 
-    print("\n[2/5] Restoring Ptyxis terminal palettes...")
+    print("\n[2/6] Restoring Ptyxis terminal palettes...")
     for pf in get_ptyxis_palette_paths(palettes_dir=palettes_dir):
         if pf.exists() or pf.is_symlink():
             try:
@@ -220,7 +224,7 @@ def uninstall_all(
     except Exception:
         pass
 
-    print("\n[3/5] Restoring ~/.config/starship.toml...")
+    print("\n[3/6] Restoring ~/.config/starship.toml...")
     starship_path = starship_toml or STARSHIP_TOML
     if starship_path.exists():
         try:
@@ -232,7 +236,7 @@ def uninstall_all(
         except Exception as e:
             print(f"  [!] Failed to clean starship.toml: {e}")
 
-    print("\n[4/5] Restoring Firefox themes...")
+    print("\n[4/6] Restoring Firefox themes...")
     profiles = firefox_profiles if firefox_profiles is not None else get_firefox_profile_dirs()
     for pdir in profiles:
         chrome_file = pdir / "chrome" / "userChrome.css"
@@ -245,7 +249,12 @@ def uninstall_all(
             except Exception as e:
                 print(f"  [!] Failed to remove userChrome.css in {pdir}: {e}")
 
-    print("\n[5/5] Removing Material Design 3 icon pack...")
+    print("\n[5/6] Restoring GTK 3/4 themes and Flatpak overrides...")
+    removed_gtk = remove_gtk_theme(gtk4_dir=gtk4_dir, gtk3_dir=gtk3_dir, revert_flatpak=True)
+    for rpath in removed_gtk:
+        print(f"  [✓] Cleaned GTK file: {rpath}")
+
+    print("\n[6/6] Removing Material Design 3 icon pack...")
     removed_icons = uninstall_m3_icon_pack(gsettings_get_fn=gsettings_get, gsettings_set_fn=gsettings_set)
     for rpath in removed_icons:
         print(f"  [✓] Removed: {rpath}")

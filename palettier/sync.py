@@ -9,7 +9,7 @@ from pathlib import Path
 
 from palettier.config import PalettierConfig, load_config, normalize_hex_color
 from palettier.icons import VALID_ICON_MODES, sync_m3_icon_pack
-from palettier.palette import map_hex_to_gnome_accent
+from palettier.palette import build_m3_scheme, map_hex_to_gnome_accent
 from palettier.state import (
     collect_current_state,
     compute_file_sha256,
@@ -19,8 +19,12 @@ from palettier.state import (
     wait_for_package_transaction,
 )
 from palettier.targets import (
+    remove_gtk_theme,
+    revert_flatpak_gtk_overrides,
+    sync_flatpak_gtk_overrides,
     sync_gnome_accent_color,
     update_firefox_theme,
+    update_gtk_theme,
     update_ptyxis_theme,
     update_starship_theme,
 )
@@ -119,6 +123,8 @@ def update_theme(
         return False
 
     updated_files: list[str] = []
+    is_dark = "dark" in (current_state.get("color_scheme") or "prefer-dark").lower()
+    gtk_scheme = build_m3_scheme(accent, is_dark=is_dark)
 
     if cfg.targets.get("starship", True) and update_starship_theme(accent, tint):
         updated_files.append("Terminal Prompt (starship.toml)")
@@ -132,8 +138,18 @@ def update_theme(
     if cfg.targets.get("gnome_accent", True) and sync_gnome_accent_color(accent):
         updated_files.append(f"GNOME Desktop Native Accent ({map_hex_to_gnome_accent(accent)})")
 
-    is_dark = "dark" in (current_state.get("color_scheme") or "prefer-dark").lower()
-    icons_updated, m3_scheme, active_icon_slot = sync_m3_icon_pack(
+    if cfg.targets.get("gtk", True):
+        if update_gtk_theme(accent, tint, is_dark=is_dark, scheme=gtk_scheme):
+            updated_files.append("GTK 3 & 4 Apps (palettier.css)")
+        if cfg.targets.get("gtk_flatpak", True):
+            if sync_flatpak_gtk_overrides():
+                updated_files.append("Flatpak GTK Override (gtk-3.0/gtk-4.0:ro)")
+        elif revert_flatpak_gtk_overrides():
+            updated_files.append("Flatpak GTK Override (reverted)")
+    elif remove_gtk_theme(revert_flatpak=True):
+        updated_files.append("GTK 3 & 4 Apps (removed)")
+
+    icons_updated, icon_m3_scheme, active_icon_slot = sync_m3_icon_pack(
         accent_hex=accent,
         is_dark=is_dark,
         mode=effective_icon_mode,
@@ -141,6 +157,7 @@ def update_theme(
         gsettings_set_fn=gsettings_set,
         tint_strength=effective_icon_tint,
     )
+    m3_scheme = icon_m3_scheme or gtk_scheme
     if icons_updated and active_icon_slot:
         updated_files.append(f"Material 3 Icon Pack ({active_icon_slot}, mode={effective_icon_mode})")
 

@@ -187,6 +187,8 @@ class TestWebUIAndCLI(unittest.TestCase):
                     status_html, body_html = self._request(f"{base}/")
                     self.assertEqual(status_html, 200)
                     self.assertIn("Palettier Settings", body_html)
+                    self.assertIn('id="t-gtk"', body_html)
+                    self.assertIn('id="t-gtk_flatpak"', body_html)
 
                     status_st, body_st = self._request(f"{base}/api/state")
                     self.assertEqual(status_st, 200)
@@ -205,7 +207,7 @@ class TestWebUIAndCLI(unittest.TestCase):
                             "icon_mode": "places",
                             "icon_tint": 0.65,
                             "accent_override": "#e01b24",
-                            "targets": {"firefox": False},
+                            "targets": {"firefox": False, "gtk_flatpak": False},
                         },
                     )
                     self.assertEqual(status_cfg, 200)
@@ -214,6 +216,8 @@ class TestWebUIAndCLI(unittest.TestCase):
                     self.assertEqual(cfg_resp["state"]["config"]["icon_mode"], "places")
                     self.assertEqual(cfg_resp["state"]["config"]["accent_override"], "#e01b24")
                     self.assertFalse(cfg_resp["state"]["config"]["targets"]["firefox"])
+                    self.assertFalse(cfg_resp["state"]["config"]["targets"]["gtk_flatpak"])
+                    self.assertTrue(cfg_resp["state"]["config"]["targets"]["gtk"])
                     self.assertTrue(cfg_path.is_file())
 
                     status_rst, body_rst = self._request(f"{base}/api/reset", method="POST", payload={})
@@ -253,7 +257,7 @@ class TestWebUIAndCLI(unittest.TestCase):
                     cli_main(["--info", "--image", str(wp)])
                 txt = out.getvalue()
                 self.assertIn("Config file:", txt)
-                self.assertIn("Enabled targets:     icons, gnome_accent, ptyxis, firefox", txt)
+                self.assertIn("Enabled targets:     icons, gnome_accent, gtk, gtk_flatpak, ptyxis, firefox", txt)
                 self.assertIn("M3 icon mode:        places", txt)
 
 
