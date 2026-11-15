@@ -164,11 +164,12 @@ bash -n install.sh uninstall.sh
 
 Licensed under the [MIT License](LICENSE).
 
-## Star history
+## Star History
 
-<a href="https://www.star-history.com/?repos=PedroMachado1%2FPalettier&amp;type=date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=PedroMachado1/Palettier&amp;type=date&amp;theme=dark">
-    <img alt="Palettier GitHub stars over time" src="https://api.star-history.com/chart?repos=PedroMachado1/Palettier&amp;type=date">
-  </picture>
+<a href="https://www.star-history.com/?repos=PedroMachado1%2FPalettier&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=PedroMachado1/Palettier&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=PedroMachado1/Palettier&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=PedroMachado1/Palettier&type=date&legend=top-left" />
+ </picture>
 </a>
